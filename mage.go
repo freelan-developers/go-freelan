@@ -10,17 +10,21 @@ import (
 )
 
 var (
+	// Packages is the list of packages.
 	Packages = []string{
 		"tuntap",
 	}
 
+	// Default is the default target.
 	Default = All
 )
 
+// All the targets are run.
 func All() {
 	mg.Deps(Build)
 }
 
+// Build the code.
 func Build() error {
 	for _, pkg := range Packages {
 		if err := sh.Run("go", "build", "./"+pkg); err != nil {
@@ -33,9 +37,16 @@ func Build() error {
 	return nil
 }
 
+// Test the code.
 func Test() error {
 	for _, pkg := range Packages {
-		if err := sh.Run("go", "build", "./"+pkg); err != nil {
+		args := []string{"test", "./" + pkg}
+
+		if mg.Verbose() {
+			args = append(args, "-v")
+		}
+
+		if err := sh.RunV("go", args...); err != nil {
 			return fmt.Errorf("building package `%s`: %v", pkg, err)
 		}
 	}
