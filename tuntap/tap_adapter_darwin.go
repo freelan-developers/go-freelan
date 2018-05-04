@@ -17,7 +17,7 @@ type tapAdapter struct {
 // NewTAPAdapter instantiates a new TAP adapter.
 func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 	if config == nil {
-		config = &TAPAdapterConfig{}
+		config = NewTAPAdapterConfig()
 	}
 
 	var f *os.File

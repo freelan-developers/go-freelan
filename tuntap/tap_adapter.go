@@ -21,3 +21,8 @@ type TAPAdapterConfig struct {
 	// or device creation.
 	Name string
 }
+
+// NewTAPAdapterConfig instantiate a new default configuration.
+func NewTAPAdapterConfig() *TAPAdapterConfig {
+	return &TAPAdapterConfig{}
+}
