@@ -18,7 +18,8 @@ func TestTAPAdapter(t *testing.T) {
 
 	defer tap.Close()
 
-	fmt.Println(tap.Interface().Name)
-	fmt.Println(tap.Interface().Addrs())
-	fmt.Println(tap.Interface().HardwareAddr)
+	buf := make([]byte, tap.Interface().MTU)
+	n, err := tap.Read(buf)
+
+	fmt.Println(n, err)
 }
