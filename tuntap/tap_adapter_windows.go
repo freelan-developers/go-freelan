@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"net"
 	"runtime"
-	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
-	userModeDeviceDir = "\\\\.\\Global\\"
-	tapWinSuffix      = ".tap"
+	userModeDeviceDir   = "\\\\.\\Global\\"
+	tapWinSuffix        = ".tap"
+	adaptersRegistryKey = `SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}`
+	tapComponentID      = "tap0901"
 )
 
 type tapAdapter struct {
@@ -27,40 +29,29 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 		config = NewTAPAdapterConfig()
 	}
 
-	aas, err := getAdaptersAddresses()
+	aas, err := getTapAdaptersAddresses()
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get adapters addresses: %s", err)
+		return nil, fmt.Errorf("failed to get tap adapters addresses: %s", err)
 	}
 
+	var h windows.Handle
 	var aa adapterAddresses
 
 	for _, aa = range aas {
-		// TODO: Use the registry and do this better.
-		if strings.HasPrefix(aa.Description, "TAP") {
-			break
+		if config.Name == "" || config.Name == aa.Name {
+			if h, err = openTapAdapter(aa.Name); err == nil {
+				break
+			}
+
+			if config.Name != "" {
+				return nil, fmt.Errorf("failed to open TAP adapter `%s`: %s", config.Name, err)
+			}
 		}
 	}
 
-	path := fmt.Sprintf("%s%s%s", userModeDeviceDir, aa.Name, tapWinSuffix)
-	pathp, err := syscall.UTF16PtrFromString(path)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert path to UTF16: %s", err)
-	}
-
-	h, err := windows.CreateFile(
-		pathp,
-		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
-		0,
-		nil,
-		syscall.OPEN_EXISTING,
-		syscall.FILE_ATTRIBUTE_SYSTEM|syscall.FILE_FLAG_OVERLAPPED,
-		0,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to open %s: %s", path, err)
+	if h == 0 {
+		return nil, fmt.Errorf("no available TAP adapter were found")
 	}
 
 	inf, err := net.InterfaceByIndex(aa.Index)
@@ -86,11 +77,77 @@ func (a *tapAdapter) Interface() *net.Interface {
 	return a.inf
 }
 
+func getTapAdaptersNames() ([]string, error) {
+	root, err := registry.OpenKey(registry.LOCAL_MACHINE, adaptersRegistryKey, registry.READ)
+
+	if err != nil {
+		return nil, fmt.Errorf("opening root key at `%s`: %s", adaptersRegistryKey, err)
+	}
+
+	defer root.Close()
+
+	names, err := root.ReadSubKeyNames(0)
+
+	if err != nil {
+		return nil, fmt.Errorf("enumerating sub-keys: %s", err)
+	}
+
+	result := make([]string, 0, len(names))
+
+	for _, name := range names {
+		k, err := registry.OpenKey(root, name, registry.READ)
+
+		if err != nil {
+			continue
+		}
+
+		defer k.Close()
+
+		componentID, _, err := k.GetStringValue("ComponentId")
+
+		if err == nil && componentID == tapComponentID {
+			ifName, _, err := k.GetStringValue("NetCfgInstanceId")
+
+			if err != nil {
+				return nil, fmt.Errorf("reading NetCfgInstanceId from `%s`: %s", name, err)
+			}
+
+			result = append(result, ifName)
+		}
+	}
+
+	return result, nil
+}
+
 type adapterAddresses struct {
 	Name         string
 	Description  string
 	FriendlyName string
 	Index        int
+}
+
+func getTapAdaptersAddresses() (result []adapterAddresses, err error) {
+	var names []string
+
+	if names, err = getTapAdaptersNames(); err != nil {
+		return nil, fmt.Errorf("listing TAP adapters names: %s", err)
+	}
+
+	if result, err = getAdaptersAddresses(); err != nil {
+		return nil, fmt.Errorf("listing TAP adapters addreses: %s", err)
+	}
+
+	filteredResult := make([]adapterAddresses, 0, len(result))
+
+	for _, aa := range result {
+		for _, name := range names {
+			if aa.Name == name {
+				filteredResult = append(filteredResult, aa)
+			}
+		}
+	}
+
+	return filteredResult, nil
 }
 
 func getAdaptersAddresses() (result []adapterAddresses, err error) {
@@ -153,4 +210,29 @@ func uint16PtrToString(b *uint16) string {
 	buf = append(buf, 0)
 
 	return syscall.UTF16ToString(buf)
+}
+
+func openTapAdapter(name string) (windows.Handle, error) {
+	path := fmt.Sprintf("%s%s%s", userModeDeviceDir, name, tapWinSuffix)
+	pathp, err := syscall.UTF16PtrFromString(path)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert path to UTF16: %s", err)
+	}
+
+	h, err := windows.CreateFile(
+		pathp,
+		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
+		0,
+		nil,
+		syscall.OPEN_EXISTING,
+		syscall.FILE_ATTRIBUTE_SYSTEM|syscall.FILE_FLAG_OVERLAPPED,
+		0,
+	)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to open tap adapter `%s`: %s", name, err)
+	}
+
+	return h, nil
 }
