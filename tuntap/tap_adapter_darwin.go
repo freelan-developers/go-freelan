@@ -7,7 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
+
+/*
+#include <stdlib.h>
+
+#include <tap_adapter_unix.h>
+*/
+import "C"
 
 type tapAdapter struct {
 	*os.File
@@ -61,6 +71,12 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 		return nil, fmt.Errorf("failed to get interface details for `%s`: %v", interfaceName, err)
 	}
 
+	if config.IPv4 != nil {
+		if err = setIPv4Address(name, *config.IPv4); err != nil {
+			return nil, err
+		}
+	}
+
 	return &tapAdapter{
 		File: f,
 		inf:  inf,
@@ -69,4 +85,28 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 
 func (a *tapAdapter) Interface() *net.Interface {
 	return a.inf
+}
+
+type ifreq struct {
+	Name  [unix.IFNAMSIZ]byte
+	Flags uint16
+	pad   [40 - unix.IFNAMSIZ - 2]byte
+}
+
+func setIPv4Address(name string, ip net.IPNet) error {
+	cName := unsafe.Pointer(C.CString(name))
+	defer C.free(cName)
+
+	ipBytes := C.CBytes(ip.IP)
+	defer C.free(ipBytes)
+
+	ones, _ := ip.Mask.Size()
+
+	errno := C.set_ipv4_address((*C.char)(cName), (*C.char)(ipBytes), C.int(ones))
+
+	if errno != 0 {
+		return fmt.Errorf("setting IPv4 address to `%s` on `%s`: %s", ip, name, syscall.Errno(errno))
+	}
+
+	return nil
 }

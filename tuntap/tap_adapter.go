@@ -20,6 +20,9 @@ type TAPAdapterConfig struct {
 	// On most systems, specifying an empty name will trigger auto-assignation
 	// or device creation.
 	Name string
+
+	// IPv4 is an IPv4 address to set on the interface after its goes up.
+	IPv4 *net.IPNet
 }
 
 // NewTAPAdapterConfig instantiate a new default configuration.
