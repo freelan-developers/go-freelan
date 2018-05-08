@@ -58,8 +58,6 @@ typedef enum {
 } tap_adapter_layer;
 
 int open_tap_adapter(tap_adapter_layer layer, const char* _name) {
-    int existing_tap = (_name != NULL);
-
 #if defined(LINUX)
     const char* dev_name = "/dev/net/tap";
 
