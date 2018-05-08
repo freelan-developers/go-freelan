@@ -185,15 +185,13 @@ int get_tap_adapter_name(char* name, size_t namelen, int fd) {
     char* n = devname(st.st_dev, S_IFCHR);
 
     if (n) {
-        if (strncpy(name, n, namelen - 1) < 0) {
-            errno = EINVAL;
-            return -1;
-        }
+        strncpy(name, n, namelen - 1);
     } else {
         return -1;
     }
 #else
     if (devname_r(st.st_dev, S_IFCHR, name, namelen - 1) == NULL) {
+        errno = EINVAL;
         return -1;
     }
 #endif

@@ -27,7 +27,6 @@ type tapAdapterFD struct {
 }
 
 func (t *tapAdapterFD) Close() error {
-	fmt.Println("close")
 	_, err := C.close_tap_adapter(t.fd)
 
 	runtime.SetFinalizer(t, nil)
@@ -56,7 +55,6 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 	taFD := &tapAdapterFD{fd}
 	runtime.SetFinalizer(taFD, (*tapAdapterFD).Close)
 
-	fmt.Println("boo")
 	buf := make([]byte, C.IFNAMSIZ)
 
 	if _, err := C.get_tap_adapter_name((*C.char)(unsafe.Pointer(&buf[0])), (C.ulong)(len(buf)), fd); err != nil {
