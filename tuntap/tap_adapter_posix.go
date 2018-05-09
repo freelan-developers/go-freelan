@@ -20,7 +20,7 @@ type tapAdapter struct {
 }
 
 type tapAdapterFD struct {
-	ptr *C.struct___0
+	ptr *C.struct_tap_adapter
 }
 
 func (t *tapAdapterFD) Close() error {
@@ -47,11 +47,29 @@ func (t *tapAdapterFD) SetIPv4(addr net.IPNet) error {
 	ipBytes := C.CBytes(addr.IP.To4())
 	defer C.free(ipBytes)
 
-	fmt.Println(addr, ipBytes)
-
 	ones, _ := addr.Mask.Size()
 
 	_, err := C.set_tap_adapter_ipv4(t.ptr, *(*C.struct_in_addr)(ipBytes), C.int(ones))
+
+	return err
+}
+
+func (t *tapAdapterFD) SetRemoteIPv4(addr net.IP) error {
+	ipBytes := C.CBytes(addr.To4())
+	defer C.free(ipBytes)
+
+	_, err := C.set_tap_adapter_remote_ipv4(t.ptr, *(*C.struct_in_addr)(ipBytes))
+
+	return err
+}
+
+func (t *tapAdapterFD) SetIPv6(addr net.IPNet) error {
+	ipBytes := C.CBytes(addr.IP.To16())
+	defer C.free(ipBytes)
+
+	ones, _ := addr.Mask.Size()
+
+	_, err := C.set_tap_adapter_ipv6(t.ptr, *(*C.struct_in6_addr)(ipBytes), C.int(ones))
 
 	return err
 }
