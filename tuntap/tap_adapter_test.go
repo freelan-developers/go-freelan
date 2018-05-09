@@ -10,7 +10,7 @@ import (
 func TestTAPAdapter(t *testing.T) {
 	config := &TAPAdapterConfig{
 		IPv4: &net.IPNet{
-			IP:   net.ParseIP("10.1.0.1"),
+			IP:   net.ParseIP("192.168.10.10"),
 			Mask: net.CIDRMask(24, 32),
 		},
 	}

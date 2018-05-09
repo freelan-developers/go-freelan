@@ -4,11 +4,9 @@ package tuntap
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"runtime"
-	"strings"
-	"unsafe"
+	"syscall"
 )
 
 /*
@@ -17,19 +15,43 @@ import (
 import "C"
 
 type tapAdapter struct {
-	io.ReadWriter
 	*tapAdapterFD
 	inf *net.Interface
 }
 
 type tapAdapterFD struct {
-	fd C.int
+	ptr *C.struct___0
 }
 
 func (t *tapAdapterFD) Close() error {
-	_, err := C.close_tap_adapter(t.fd)
+	_, err := C.close_tap_adapter(t.ptr)
 
 	runtime.SetFinalizer(t, nil)
+
+	return err
+}
+
+func (t *tapAdapterFD) Name() string {
+	return C.GoString(&t.ptr.name[0])
+}
+
+func (t *tapAdapterFD) Read(p []byte) (int, error) {
+	return syscall.Read((int)(t.ptr.fd), p)
+}
+
+func (t *tapAdapterFD) Write(p []byte) (int, error) {
+	return syscall.Write((int)(t.ptr.fd), p)
+}
+
+func (t *tapAdapterFD) SetIPv4(addr net.IPNet) error {
+	ipBytes := C.CBytes(addr.IP.To4())
+	defer C.free(ipBytes)
+
+	fmt.Println(addr, ipBytes)
+
+	ones, _ := addr.Mask.Size()
+
+	_, err := C.set_tap_adapter_ipv4(t.ptr, *(*C.struct_in_addr)(ipBytes), C.int(ones))
 
 	return err
 }
@@ -43,25 +65,19 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 	cname := (*C.char)(C.NULL)
 
 	if config.Name != "" {
-		//TODO: set name to the cstring.
+		//TODO: set cname to the cstring.
 	}
 
-	fd, err := C.open_tap_adapter(C.TA_ETHERNET, cname)
+	ptr, err := C.open_tap_adapter(C.TA_ETHERNET, cname)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tap adapter name: %s", err)
 	}
 
-	taFD := &tapAdapterFD{fd}
+	taFD := &tapAdapterFD{ptr}
 	runtime.SetFinalizer(taFD, (*tapAdapterFD).Close)
 
-	buf := make([]byte, C.IFNAMSIZ)
-
-	if _, err := C.get_tap_adapter_name((*C.char)(unsafe.Pointer(&buf[0])), (C.ulong)(len(buf)), fd); err != nil {
-		return nil, fmt.Errorf("failed to get tap adapter name: %s", err)
-	}
-
-	name := strings.TrimRight(string(buf), "\\0")
+	name := taFD.Name()
 
 	inf, err := net.InterfaceByName(name)
 
@@ -69,11 +85,11 @@ func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
 		return nil, fmt.Errorf("failed to get interface details for `%s`: %v", name, err)
 	}
 
-	//if config.IPv4 != nil {
-	//	if err = setIPv4Address(name, *config.IPv4); err != nil {
-	//		return nil, err
-	//	}
-	//}
+	if config.IPv4 != nil {
+		if err = taFD.SetIPv4(*config.IPv4); err != nil {
+			return nil, fmt.Errorf("setting IPv4 address to %s: %s", *config.IPv4, err)
+		}
+	}
 
 	return &tapAdapter{
 		tapAdapterFD: taFD,

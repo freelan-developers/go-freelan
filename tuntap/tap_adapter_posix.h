@@ -57,7 +57,12 @@ typedef enum {
     TA_IP = 1,
 } tap_adapter_layer;
 
-int open_tap_adapter(tap_adapter_layer layer, const char* _name) {
+typedef struct {
+    int fd;
+    char name[IFNAMSIZ];
+} tap_adapter;
+
+const tap_adapter* open_tap_adapter(tap_adapter_layer layer, const char* _name) {
 #if defined(LINUX)
     const char* dev_name = "/dev/net/tap";
 
@@ -67,60 +72,62 @@ int open_tap_adapter(tap_adapter_layer layer, const char* _name) {
 
     if (access(dev_name, F_OK) == -1) {
         if (errno != ENOENT) {
-            return -1;
+            return NULL;
         }
 
         // No tap found, create one.
         if (mknod(dev_name, S_IFCHR | S_IRUSR | S_IWUSR, makedev(10, 200)) == -1) {
-            return -1;
+            return NULL;
         }
     }
 
     int device = open(dev_name, O_RDWR);
 
     if (device < 0) {
-        return -1;
+        return NULL;
     }
 
-    struct ifreq ifr {};
+    {
+        struct ifreq ifr {};
 
-    ifr.ifr_flags = IFF_NO_PI;
+        ifr.ifr_flags = IFF_NO_PI;
 
 #if defined(IFF_ONE_QUEUE) && defined(SIOCSIFTXQLEN)
-    ifr.ifr_flags |= IFF_ONE_QUEUE;
+        ifr.ifr_flags |= IFF_ONE_QUEUE;
 #endif
 
-    if (layer == TA_ETHERNET) {
-        ifr.ifr_flags |= IFF_TAP;
-    } else {
-        ifr.ifr_flags |= IFF_TUN;
-    }
+        if (layer == TA_ETHERNET) {
+            ifr.ifr_flags |= IFF_TAP;
+        } else {
+            ifr.ifr_flags |= IFF_TUN;
+        }
 
-    if (_name != NULL) {
-        strncpy(ifr.ifr_name, _name, IFNAMSIZ);
-    }
+        if (_name != NULL) {
+            strncpy(ifr.ifr_name, _name, IFNAMSIZ);
+        }
 
-    // Set the parameters on the tun device.
-    if (ioctl(device, TUNSETIFF, (void *)&ifr) < 0) {
-        return -1;
+        // Set the parameters on the tun device.
+        if (ioctl(device, TUNSETIFF, (void *)&ifr) < 0) {
+            return NULL;
+        }
     }
 
     int socket = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (socket < 0) {
-        return -1;
+        return NULL;
     }
 
 #if defined(IFF_ONE_QUEUE) && defined(SIOCSIFTXQLEN)
     {
-        struct ifreq netifr {};
+        struct ifreq ifr {};
 
-        strncpy(netifr.ifr_name, ifr.ifr_name, IFNAMSIZ);
+        strncpy(ifr.ifr_name, ifr.ifr_name, IFNAMSIZ);
 
-        netifr.ifr_qlen = 100; // 100 is the default value
+        ifr.ifr_qlen = 100; // 100 is the default value
 
-        if (getuid() == 0 && ioctl(socket, SIOCSIFTXQLEN, (void *)&netifr) < 0) {
-            return -1;
+        if (getuid() == 0 && ioctl(socket, SIOCSIFTXQLEN, (void *)&ifr) < 0) {
+            return NULL;
         }
     }
 #endif /* IFF_ONE_QUEUE */
@@ -133,24 +140,24 @@ int open_tap_adapter(tap_adapter_layer layer, const char* _name) {
     }
 
     int device = -1;
+    char path[256] = {};
 
     if (_name != NULL) {
-        char path[256] = {};
-
         if (snprintf(path, 256, "/dev/%s", _name) < 0) {
             errno = EINVAL;
-            return -1;
+            return NULL;
         }
 
         device = open(path, O_RDWR);
     } else {
         for (unsigned int i = 0 ; device < 0; ++i) {
-            char path[256] = {};
 
             if (snprintf(path, 256, "/dev/%s%u", dev_type, i) < 0) {
                 errno = EINVAL;
-                return -1;
+                return NULL;
             }
+
+            _name = &path[5];
 
             device = open(path, O_RDWR);
 
@@ -163,58 +170,54 @@ int open_tap_adapter(tap_adapter_layer layer, const char* _name) {
 
     if (device < 0) {
         errno = ENOENT;
-        return -1;
+        return NULL;
     }
-#endif
 
-    return device;
-}
-
-int get_tap_adapter_name(char* name, size_t namelen, int fd) {
     struct stat st = {};
 
-    if (fstat(fd, &st) != 0) {
-        return -1;
+    if (fstat(device, &st) != 0) {
+        return NULL;
     }
 
+    tap_adapter* result = (tap_adapter*)malloc(sizeof(tap_adapter));
+    result->fd = device;
+
 #ifdef __NetBSD__
-    if (devname_r(st.st_dev, S_IFCHR, name, namelen - 1) != 0) {
-        return -1;
+    if (devname_r(st.st_dev, S_IFCHR, result->name, IFNAMSIZ - 1) != 0) {
+        strncpy(result->name, _name, IFNAMSIZ);
     }
 #elif defined(__OpenBSD__)
     char* n = devname(st.st_dev, S_IFCHR);
 
     if (n) {
-        strncpy(name, n, namelen - 1);
+        strncpy(result->name, n, IFNAMSIZ - 1);
     } else {
-        return -1;
+        strncpy(result->name, _name, IFNAMSIZ);
     }
 #else
-    if (devname_r(st.st_dev, S_IFCHR, name, namelen - 1) == NULL) {
-        errno = EINVAL;
-        return -1;
+    if (devname_r(st.st_dev, S_IFCHR, result->name, IFNAMSIZ - 1) == NULL) {
+        strncpy(result->name, _name, IFNAMSIZ);
     }
 #endif
 
-    return 0;
+#endif /* BSD & OSX */
+
+    return result;
 }
 
-int close_tap_adapter(int fd) {
+int close_tap_adapter(tap_adapter* ta) {
     // only attempt to destroy interface if non-root.
     if (getuid() == 0) {
 #if defined(MACINTOSH) || defined(BSD)
-        struct ifreq ifr = {};
-        memset(ifr.ifr_name, 0x00, IFNAMSIZ);
-
-        if (get_tap_adapter_name(ifr.ifr_name, IFNAMSIZ, fd) < 0) {
-            return -1;
-        }
-
         int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
         if (sock < 0) {
             return -1;
         }
+
+        struct ifreq ifr = {};
+        memset(ifr.ifr_name, 0x00, IFNAMSIZ);
+        strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
         // Destroy the virtual tap device
         if (ioctl(sock, SIOCIFDESTROY, &ifr) < 0) {
@@ -223,33 +226,30 @@ int close_tap_adapter(int fd) {
 #endif
     }
 
-    return close(fd);
+    return close(ta->fd);
 }
 
-int set_tap_adapter_connected_state(int fd, int connected) {
+int set_tap_adapter_connected_state(tap_adapter* ta, int connected) {
     // as non-root, assume that existing TAP is correctly configured
     if (getuid() != 0) {
         return 0;
     }
 
-    struct ifreq netifr = {};
-
-    if (get_tap_adapter_name(netifr.ifr_name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
+    struct ifreq ifr = {};
+    strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
     // Get the interface flags
-    if (ioctl(sock, SIOCGIFFLAGS, &netifr) < 0) {
+    if (ioctl(sock, SIOCGIFFLAGS, &ifr) < 0) {
         return -1;
     }
 
     if (connected != 0) {
 #ifdef MACINTOSH
-        netifr.ifr_flags |= IFF_UP;
+        ifr.ifr_flags |= IFF_UP;
 #else
-        netifr.ifr_flags |= (IFF_UP | IFF_RUNNING);
+        ifr.ifr_flags |= (IFF_UP | IFF_RUNNING);
 #endif
     } else {
 #ifdef MACINTOSH
@@ -257,46 +257,40 @@ int set_tap_adapter_connected_state(int fd, int connected) {
         // so do nothing for the moment.
         return 0;
 #else
-        netifr.ifr_flags &= ~(IFF_UP | IFF_RUNNING);
+        ifr.ifr_flags &= ~(IFF_UP | IFF_RUNNING);
 #endif
     }
 
     // Set the interface UP
-    if (ioctl(sock, SIOCSIFFLAGS, &netifr) < 0) {
+    if (ioctl(sock, SIOCSIFFLAGS, &ifr) < 0) {
         return -1;
     }
 
     return 0;
 }
 
-int set_tap_adapter_mtu(int fd, size_t _mtu) {
-    struct ifreq netifr = {};
-
-    if (get_tap_adapter_name(netifr.ifr_name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
+int set_tap_adapter_mtu(tap_adapter* ta, size_t _mtu) {
+    struct ifreq ifr = {};
+    strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    netifr.ifr_mtu = _mtu;
+    ifr.ifr_mtu = _mtu;
 
-    if (ioctl(sock, SIOCSIFMTU, &netifr) < 0) {
+    if (ioctl(sock, SIOCSIFMTU, &ifr) < 0) {
         return -1;
     }
 
     return 0;
 }
 
-int set_tap_adapter_ipv4(int fd, struct in_addr addr, int prefixlen) {
+int set_tap_adapter_ipv4(tap_adapter* ta, struct in_addr addr, int prefixlen) {
     assert(prefixlen < 32);
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
     struct ifreq ifr = {};
-
-    if (get_tap_adapter_name(ifr.ifr_name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
+    strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
     struct sockaddr_in* ifr_a = (struct sockaddr_in*)(&ifr.ifr_addr);
     ifr_a->sin_family = AF_INET;
@@ -326,19 +320,13 @@ int set_tap_adapter_ipv4(int fd, struct in_addr addr, int prefixlen) {
     return 0;
 }
 
-int set_tap_adapter_ipv6(int fd, struct in6_addr addr, int prefixlen) {
+int set_tap_adapter_ipv6(tap_adapter* ta, struct in6_addr addr, int prefixlen) {
     assert(prefixlen < 128);
 
     int sock = socket(AF_INET6, SOCK_DGRAM, 0);
 
 #ifdef LINUX
-    char name[IFNAMSIZ];
-
-    if (get_tap_adapter_name(name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
-
-    const unsigned int if_index = if_nametoindex(name);
+    const unsigned int if_index = if_nametoindex(ta->name);
 
     if (if_index == 0) {
         return -1;
@@ -352,10 +340,7 @@ int set_tap_adapter_ipv6(int fd, struct in6_addr addr, int prefixlen) {
     if (ioctl(sock, SIOCSIFADDR, &ifr) < 0)
 #elif defined(MACINTOSH) || defined(BSD)
     struct in6_aliasreq iar = {};
-
-    if (get_tap_adapter_name(iar.ifra_name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
+    strncpy(iar.ifra_name, ta->name, IFNAMSIZ);
 
     ((struct sockaddr_in6*)(&iar.ifra_addr))->sin6_family = AF_INET6;
     ((struct sockaddr_in6*)(&iar.ifra_prefixmask))->sin6_family = AF_INET6;
@@ -382,7 +367,7 @@ int set_tap_adapter_ipv6(int fd, struct in6_addr addr, int prefixlen) {
     return 0;
 }
 
-int set_tap_adapter_remote_ipv4(int fd, struct in_addr addr) {
+int set_tap_adapter_remote_ipv4(tap_adapter* ta, struct in_addr addr) {
 #ifdef MACINTOSH
     // The TUN adapter for Mac OSX has a weird behavior regarding routes and ioctl.
 
@@ -394,20 +379,17 @@ int set_tap_adapter_remote_ipv4(int fd, struct in_addr addr) {
 #else
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    ifreq ifr_d {};
+    ifreq ifr = {};
+    strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
-    if (get_tap_adapter_name(ifr_d.ifr_name, IFNAMSIZ, fd) < 0) {
-        return -1;
-    }
-
-    struct sockaddr_in* ifr_dst_addr = (sockaddr_in*)(&ifr_d.ifr_dstaddr);
+    struct sockaddr_in* ifr_dst_addr = (sockaddr_in*)(&ifr.ifr_dstaddr);
     ifr_dst_addr->sin_family = AF_INET;
 #ifdef BSD
     ifr_dst_addr->sin_len = sizeof(struct sockaddr_in);
 #endif
     memcpy(&ifr_dst_addr->sin_addr.s_addr, &addr.s_addr, sizeof(struct in_addr));
 
-    if (ioctl(sock, SIOCSIFDSTADDR, &ifr_d) < 0) {
+    if (ioctl(sock, SIOCSIFDSTADDR, &ifr) < 0) {
         // If the address is already set, we ignore it.
         if (errno != EEXIST) {
             return -1;
