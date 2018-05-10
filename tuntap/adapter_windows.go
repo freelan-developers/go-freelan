@@ -23,10 +23,10 @@ type tapAdapter struct {
 	inf *net.Interface
 }
 
-// NewTAPAdapter instantiates a new TAP adapter.
-func NewTAPAdapter(config *TAPAdapterConfig) (TAPAdapter, error) {
+// NewTapAdapter instantiates a new tap adapter.
+func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 	if config == nil {
-		config = NewTAPAdapterConfig()
+		config = NewTapAdapterConfig()
 	}
 
 	aas, err := getTapAdaptersAddresses()

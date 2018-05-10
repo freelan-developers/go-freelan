@@ -53,16 +53,16 @@ struct in6_ifreq
 #endif
 
 typedef enum {
-    TA_ETHERNET = 0,
-    TA_IP = 1,
-} tap_adapter_layer;
+    AL_ETHERNET = 0,
+    AL_IP = 1,
+} adapter_layer;
 
-struct tap_adapter {
+struct adapter {
     int fd;
     char name[IFNAMSIZ];
 };
 
-const struct tap_adapter* open_tap_adapter(tap_adapter_layer layer, const char* _name) {
+const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 #if defined(LINUX)
     const char* dev_name = "/dev/net/tap";
 
@@ -135,7 +135,7 @@ const struct tap_adapter* open_tap_adapter(tap_adapter_layer layer, const char* 
 #else /* *BSD and Mac OS X */
     const char* dev_type = "tap";
 
-    if (layer == TA_IP) {
+    if (layer == AL_IP) {
         dev_type = "tun";
     }
 
@@ -179,7 +179,7 @@ const struct tap_adapter* open_tap_adapter(tap_adapter_layer layer, const char* 
         return NULL;
     }
 
-    struct tap_adapter* result = (struct tap_adapter*)malloc(sizeof(struct tap_adapter));
+    struct adapter* result = (struct adapter*)malloc(sizeof(struct adapter));
     result->fd = device;
 
 #ifdef __NetBSD__
@@ -205,7 +205,7 @@ const struct tap_adapter* open_tap_adapter(tap_adapter_layer layer, const char* 
     return result;
 }
 
-int close_tap_adapter(struct tap_adapter* ta) {
+int close_adapter(struct adapter* ta) {
     // only attempt to destroy interface if non-root.
     if (getuid() == 0) {
 #if defined(MACINTOSH) || defined(BSD)
@@ -237,7 +237,7 @@ int close_tap_adapter(struct tap_adapter* ta) {
     return 0;
 }
 
-int set_tap_adapter_connected_state(struct tap_adapter* ta, int connected) {
+int set_adapter_connected_state(struct adapter* ta, int connected) {
     // as non-root, assume that existing TAP is correctly configured
     if (getuid() != 0) {
         return 0;
@@ -277,7 +277,7 @@ int set_tap_adapter_connected_state(struct tap_adapter* ta, int connected) {
     return 0;
 }
 
-int set_tap_adapter_mtu(struct tap_adapter* ta, size_t _mtu) {
+int set_adapter_mtu(struct adapter* ta, size_t _mtu) {
     struct ifreq ifr = {};
     strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
@@ -292,7 +292,7 @@ int set_tap_adapter_mtu(struct tap_adapter* ta, size_t _mtu) {
     return 0;
 }
 
-int set_tap_adapter_ipv4(struct tap_adapter* ta, struct in_addr addr, int prefixlen) {
+int set_adapter_ipv4(struct adapter* ta, struct in_addr addr, int prefixlen) {
     assert(prefixlen < 32);
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -328,7 +328,7 @@ int set_tap_adapter_ipv4(struct tap_adapter* ta, struct in_addr addr, int prefix
     return 0;
 }
 
-int set_tap_adapter_ipv6(struct tap_adapter* ta, struct in6_addr addr, int prefixlen) {
+int set_adapter_ipv6(struct adapter* ta, struct in6_addr addr, int prefixlen) {
     assert(prefixlen < 128);
 
     int sock = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -375,7 +375,7 @@ int set_tap_adapter_ipv6(struct tap_adapter* ta, struct in6_addr addr, int prefi
     return 0;
 }
 
-int set_tap_adapter_remote_ipv4(struct tap_adapter* ta, struct in_addr addr) {
+int set_adapter_remote_ipv4(struct adapter* ta, struct in_addr addr) {
 #ifdef MACINTOSH
     // The TUN adapter for Mac OSX has a weird behavior regarding routes and ioctl.
 
