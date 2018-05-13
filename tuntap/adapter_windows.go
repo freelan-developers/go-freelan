@@ -2,11 +2,12 @@ package tuntap
 
 import (
 	"fmt"
+	"io"
 	"net"
-	"runtime"
 	"syscall"
 	"unsafe"
 
+	winio "github.com/Microsoft/go-winio"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -19,7 +20,7 @@ const (
 )
 
 type adapterImpl struct {
-	*overlappedFile
+	io.ReadWriteCloser
 	inf *net.Interface
 }
 
@@ -30,7 +31,7 @@ func newAdapter(name string) (*adapterImpl, error) {
 		return nil, fmt.Errorf("failed to get tap adapters addresses: %s", err)
 	}
 
-	var h windows.Handle
+	var h syscall.Handle
 	var aa adapterAddresses
 
 	for _, aa = range aas {
@@ -55,17 +56,13 @@ func newAdapter(name string) (*adapterImpl, error) {
 		return nil, fmt.Errorf("failed to get interface details for `%s`: %v", aa.FriendlyName, err)
 	}
 
-	adapter := &adapterImpl{
-		&overlappedFile{
-			fd:   h,
-			name: aa.Name,
-		},
-		inf,
+	rwc, err := winio.MakeOpenFile(h)
+
+	if err != nil {
+		return nil, err
 	}
 
-	runtime.SetFinalizer(adapter.overlappedFile, (*adapter.overlappedFile).Close())
-
-	return adapter, nil
+	return &adapterImpl{rwc, inf}, nil
 }
 
 // NewTapAdapter instantiates a new tap adapter.
@@ -263,7 +260,7 @@ func uint16PtrToString(b *uint16) string {
 	return syscall.UTF16ToString(buf)
 }
 
-func openTapAdapter(name string) (windows.Handle, error) {
+func openTapAdapter(name string) (syscall.Handle, error) {
 	path := fmt.Sprintf("%s%s%s", userModeDeviceDir, name, tapWinSuffix)
 	pathp, err := syscall.UTF16PtrFromString(path)
 
@@ -271,7 +268,7 @@ func openTapAdapter(name string) (windows.Handle, error) {
 		return 0, fmt.Errorf("failed to convert path to UTF16: %s", err)
 	}
 
-	h, err := windows.CreateFile(
+	h, err := syscall.CreateFile(
 		pathp,
 		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
 		0,
