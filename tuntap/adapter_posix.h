@@ -21,6 +21,7 @@
 
 #include <linux/if_tun.h>
 #include <sys/sysmacros.h>
+#include <net/if.h>
 
 /**
  * \struct in6_ifreq
@@ -66,7 +67,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 #if defined(LINUX)
     const char* dev_name = "/dev/net/tap";
 
-    if (layer == TAP_IP) {
+    if (layer == AL_IP) {
         dev_name = "/dev/net/tun";
     }
 
@@ -88,7 +89,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
     }
 
     {
-        struct ifreq ifr {};
+        struct ifreq ifr = {};
 
         ifr.ifr_flags = IFF_NO_PI;
 
@@ -96,7 +97,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
         ifr.ifr_flags |= IFF_ONE_QUEUE;
 #endif
 
-        if (layer == TA_ETHERNET) {
+        if (layer == AL_ETHERNET) {
             ifr.ifr_flags |= IFF_TAP;
         } else {
             ifr.ifr_flags |= IFF_TUN;
@@ -112,25 +113,28 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
         }
     }
 
-    int socket = socket(AF_INET, SOCK_DGRAM, 0);
+#if defined(IFF_ONE_QUEUE) && defined(SIOCSIFTXQLEN)
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    if (socket < 0) {
+    if (sock < 0) {
         return NULL;
     }
 
-#if defined(IFF_ONE_QUEUE) && defined(SIOCSIFTXQLEN)
     {
-        struct ifreq ifr {};
+        struct ifreq ifr = {};
 
         strncpy(ifr.ifr_name, ifr.ifr_name, IFNAMSIZ);
 
         ifr.ifr_qlen = 100; // 100 is the default value
 
-        if (getuid() == 0 && ioctl(socket, SIOCSIFTXQLEN, (void *)&ifr) < 0) {
+        if (getuid() == 0 && ioctl(sock, SIOCSIFTXQLEN, (void *)&ifr) < 0) {
             return NULL;
         }
     }
 #endif /* IFF_ONE_QUEUE */
+
+    struct adapter* result = (struct adapter*)malloc(sizeof(struct adapter));
+    result->fd = device;
 
 #else /* *BSD and Mac OS X */
     const char* dev_type = "tap";
@@ -340,8 +344,8 @@ int set_adapter_ipv6(struct adapter* ta, struct in6_addr addr, int prefixlen) {
         return -1;
     }
 
-    in6_ifreq ifr = {};
-    std::memcpy(&ifr.ifr6_addr.s6_addr, &addr.s6_addr, sizeof(struct in6_addr));
+    struct in6_ifreq ifr = {};
+    memcpy(&ifr.ifr6_addr.s6_addr, &addr.s6_addr, sizeof(struct in6_addr));
     ifr.ifr6_prefixlen = prefixlen;
     ifr.ifr6_ifindex = if_index;
 
@@ -387,10 +391,10 @@ int set_adapter_remote_ipv4(struct adapter* ta, struct in_addr addr) {
 #else
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    ifreq ifr = {};
+    struct ifreq ifr = {};
     strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
-    struct sockaddr_in* ifr_dst_addr = (sockaddr_in*)(&ifr.ifr_dstaddr);
+    struct sockaddr_in* ifr_dst_addr = (struct sockaddr_in*)(&ifr.ifr_dstaddr);
     ifr_dst_addr->sin_family = AF_INET;
 #ifdef BSD
     ifr_dst_addr->sin_len = sizeof(struct sockaddr_in);
