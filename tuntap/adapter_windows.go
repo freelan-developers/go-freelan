@@ -18,17 +18,12 @@ const (
 	tapComponentID      = "tap0901"
 )
 
-type tapAdapter struct {
+type adapterImpl struct {
 	*overlappedFile
 	inf *net.Interface
 }
 
-// NewTapAdapter instantiates a new tap adapter.
-func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
-	if config == nil {
-		config = NewTapAdapterConfig()
-	}
-
+func newAdapter(name string) (*adapterImpl, error) {
 	aas, err := getTapAdaptersAddresses()
 
 	if err != nil {
@@ -39,13 +34,13 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 	var aa adapterAddresses
 
 	for _, aa = range aas {
-		if config.Name == "" || config.Name == aa.Name {
+		if name == "" || name == aa.Name {
 			if h, err = openTapAdapter(aa.Name); err == nil {
 				break
 			}
 
-			if config.Name != "" {
-				return nil, fmt.Errorf("failed to open TAP adapter `%s`: %s", config.Name, err)
+			if name != "" {
+				return nil, fmt.Errorf("failed to open TAP adapter `%s`: %s", name, err)
 			}
 		}
 	}
@@ -60,7 +55,7 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 		return nil, fmt.Errorf("failed to get interface details for `%s`: %v", aa.FriendlyName, err)
 	}
 
-	ta := &tapAdapter{
+	adapter := &adapterImpl{
 		&overlappedFile{
 			fd:   h,
 			name: aa.Name,
@@ -68,13 +63,69 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 		inf,
 	}
 
-	runtime.SetFinalizer(ta.overlappedFile, (*ta.overlappedFile).Close())
+	runtime.SetFinalizer(adapter.overlappedFile, (*adapter.overlappedFile).Close())
 
-	return ta, nil
+	return adapter, nil
 }
 
-func (a *tapAdapter) Interface() *net.Interface {
+// NewTapAdapter instantiates a new tap adapter.
+func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
+	if config == nil {
+		config = NewTapAdapterConfig()
+	}
+
+	adapter, err := newAdapter(config.Name)
+
+	// TODO: Set configuration.
+
+	return adapter, err
+}
+
+// NewTunAdapter instantiates a new tun adapter.
+func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
+	if config == nil {
+		config = NewTunAdapterConfig()
+	}
+
+	adapter, err := newAdapter(config.Name)
+
+	// TODO: Set configuration.
+
+	return adapter, err
+}
+
+func (a *adapterImpl) IPv4() (*net.IPNet, error) {
+	//TODO: Implement.
+	return nil, nil
+}
+
+func (a *adapterImpl) SetIPv4(ip *net.IPNet) error {
+	//TODO: Implement.
+	return nil
+}
+
+func (a *adapterImpl) IPv6() (*net.IPNet, error) {
+	//TODO: Implement.
+	return nil, nil
+}
+
+func (a *adapterImpl) SetIPv6(ip *net.IPNet) error {
+	//TODO: Implement.
+	return nil
+}
+
+func (a *adapterImpl) Interface() *net.Interface {
 	return a.inf
+}
+
+func (a *adapterImpl) RemoteIPv4() (net.IP, error) {
+	//TODO: Implement.
+	return nil, nil
+}
+
+func (a *adapterImpl) SetRemoteIPv4(ip net.IP) error {
+	//TODO: Implement.
+	return nil
 }
 
 func getTapAdaptersNames() ([]string, error) {
