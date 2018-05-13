@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"syscall"
 	"unsafe"
 
@@ -17,11 +18,27 @@ const (
 	tapWinSuffix        = ".tap"
 	adaptersRegistryKey = `SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}`
 	tapComponentID      = "tap0901"
+	fileDeviceUnknown   = 0x00000022
+	methodBuffered      = 0x00000000
+	fileAnyAccess       = 0x00000000
 )
+
+var (
+	tapWinIoctlSetMediaStatus = tapCtlCode(6)
+)
+
+func tapCtlCode(function uint32) uint32 {
+	return ctlCode(fileDeviceUnknown, function, methodBuffered, fileAnyAccess)
+}
+
+func ctlCode(deviceType, function, method, access uint32) uint32 {
+	return (deviceType << 16) | (access << 14) | (function << 2) | method
+}
 
 type adapterImpl struct {
 	io.ReadWriteCloser
-	inf *net.Interface
+	handle syscall.Handle
+	inf    *net.Interface
 }
 
 func newAdapter(name string) (*adapterImpl, error) {
@@ -62,7 +79,14 @@ func newAdapter(name string) (*adapterImpl, error) {
 		return nil, err
 	}
 
-	return &adapterImpl{rwc, inf}, nil
+	adapter := &adapterImpl{rwc, h, inf}
+
+	if err = adapter.SetConnectedState(true); err != nil {
+		return nil, fmt.Errorf("failed to bring the device up: %s", err)
+	}
+	runtime.SetFinalizer(adapter, (*adapterImpl).Close)
+
+	return adapter, nil
 }
 
 // NewTapAdapter instantiates a new tap adapter.
@@ -89,6 +113,13 @@ func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
 	// TODO: Set configuration.
 
 	return adapter, err
+}
+
+func (a *adapterImpl) Close() error {
+	a.SetConnectedState(false)
+	runtime.SetFinalizer(a, nil)
+
+	return a.ReadWriteCloser.Close()
 }
 
 func (a *adapterImpl) IPv4() (*net.IPNet, error) {
@@ -123,6 +154,30 @@ func (a *adapterImpl) RemoteIPv4() (net.IP, error) {
 func (a *adapterImpl) SetRemoteIPv4(ip net.IP) error {
 	//TODO: Implement.
 	return nil
+}
+
+func (a *adapterImpl) SetConnectedState(connected bool) error {
+	var bytesReturned uint32
+	var status [4]byte
+
+	// syscall.DeviceIoControl requires an output buffer whereas the original
+	// C++ code did not.
+	var unused [4]byte
+
+	if connected {
+		status[0] = 0x01
+	}
+
+	return syscall.DeviceIoControl(
+		a.handle,
+		tapWinIoctlSetMediaStatus,
+		&status[0],
+		uint32(len(status)),
+		&unused[0],
+		uint32(len(unused)),
+		&bytesReturned,
+		nil,
+	)
 }
 
 func getTapAdaptersNames() ([]string, error) {
