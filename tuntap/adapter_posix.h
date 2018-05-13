@@ -88,9 +88,9 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
         return NULL;
     }
 
-    {
-        struct ifreq ifr = {};
+    struct ifreq ifr = {};
 
+    {
         ifr.ifr_flags = IFF_NO_PI;
 
 #if defined(IFF_ONE_QUEUE) && defined(SIOCSIFTXQLEN)
@@ -109,6 +109,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 
         // Set the parameters on the tun device.
         if (ioctl(device, TUNSETIFF, (void *)&ifr) < 0) {
+            close(device);
             return NULL;
         }
     }
@@ -121,13 +122,11 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
     }
 
     {
-        struct ifreq ifr = {};
-
-        strncpy(ifr.ifr_name, ifr.ifr_name, IFNAMSIZ);
-
+        ifr.ifr_flags = 0;
         ifr.ifr_qlen = 100; // 100 is the default value
 
         if (getuid() == 0 && ioctl(sock, SIOCSIFTXQLEN, (void *)&ifr) < 0) {
+            close(sock);
             return NULL;
         }
     }
@@ -135,6 +134,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 
     struct adapter* result = (struct adapter*)malloc(sizeof(struct adapter));
     result->fd = device;
+    strncpy(result->name, ifr.ifr_name, IFNAMSIZ);
 
 #else /* *BSD and Mac OS X */
     const char* dev_type = "tap";
@@ -226,9 +226,12 @@ int close_adapter(struct adapter* ta) {
 
         // Destroy the virtual tap device
         if (ioctl(sock, SIOCIFDESTROY, &ifr) < 0) {
+            close(sock);
             free(ta);
             return -1;
         }
+
+        close(sock);
 #endif
     }
 
@@ -254,6 +257,7 @@ int set_adapter_connected_state(struct adapter* ta, int connected) {
 
     // Get the interface flags
     if (ioctl(sock, SIOCGIFFLAGS, &ifr) < 0) {
+        close(sock);
         return -1;
     }
 
@@ -267,6 +271,7 @@ int set_adapter_connected_state(struct adapter* ta, int connected) {
 #ifdef MACINTOSH
         // Mac OS X: set_connected_state(false) seems to confuse the TAP
         // so do nothing for the moment.
+        close(sock);
         return 0;
 #else
         ifr.ifr_flags &= ~(IFF_UP | IFF_RUNNING);
@@ -275,8 +280,11 @@ int set_adapter_connected_state(struct adapter* ta, int connected) {
 
     // Set the interface UP
     if (ioctl(sock, SIOCSIFFLAGS, &ifr) < 0) {
+        close(sock);
         return -1;
     }
+
+    close(sock);
 
     return 0;
 }
@@ -290,9 +298,11 @@ int set_adapter_mtu(struct adapter* ta, size_t _mtu) {
     ifr.ifr_mtu = _mtu;
 
     if (ioctl(sock, SIOCSIFMTU, &ifr) < 0) {
+        close(sock);
         return -1;
     }
 
+    close(sock);
     return 0;
 }
 
@@ -314,6 +324,7 @@ int set_adapter_ipv4(struct adapter* ta, struct in_addr addr, int prefixlen) {
     if (ioctl(sock, SIOCSIFADDR, &ifr) < 0) {
         // If the address is already set, we ignore it.
         if (errno != EEXIST) {
+            close(sock);
             return -1;
         }
     }
@@ -324,11 +335,13 @@ int set_adapter_ipv4(struct adapter* ta, struct in_addr addr, int prefixlen) {
         if (ioctl(sock, SIOCSIFNETMASK, &ifr) < 0) {
             // If the mask is already set, we ignore it.
             if (errno != EEXIST) {
+                close(sock);
                 return -1;
             }
         }
     }
 
+    close(sock);
     return 0;
 }
 
@@ -341,6 +354,7 @@ int set_adapter_ipv6(struct adapter* ta, struct in6_addr addr, int prefixlen) {
     const unsigned int if_index = if_nametoindex(ta->name);
 
     if (if_index == 0) {
+        close(sock);
         return -1;
     }
 
@@ -372,10 +386,12 @@ int set_adapter_ipv6(struct adapter* ta, struct in6_addr addr, int prefixlen) {
     {
         // If the address is already set, we ignore it.
         if (errno != EEXIST) {
+            close(sock);
             return -1;
         }
     }
 
+    close(sock);
     return 0;
 }
 
@@ -404,10 +420,12 @@ int set_adapter_remote_ipv4(struct adapter* ta, struct in_addr addr) {
     if (ioctl(sock, SIOCSIFDSTADDR, &ifr) < 0) {
         // If the address is already set, we ignore it.
         if (errno != EEXIST) {
+            close(sock);
             return -1;
         }
     }
 
+    close(sock);
     return 0;
 #endif
 }
