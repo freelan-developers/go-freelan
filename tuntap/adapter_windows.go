@@ -122,19 +122,9 @@ func (a *adapterImpl) Close() error {
 	return a.ReadWriteCloser.Close()
 }
 
-func (a *adapterImpl) IPv4() (*net.IPNet, error) {
-	//TODO: Implement.
-	return nil, nil
-}
-
 func (a *adapterImpl) SetIPv4(ip *net.IPNet) error {
 	//TODO: Implement.
 	return nil
-}
-
-func (a *adapterImpl) IPv6() (*net.IPNet, error) {
-	//TODO: Implement.
-	return nil, nil
 }
 
 func (a *adapterImpl) SetIPv6(ip *net.IPNet) error {
