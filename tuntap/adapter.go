@@ -9,6 +9,10 @@ import (
 type Adapter interface {
 	io.ReadWriteCloser
 	Interface() *net.Interface
+	IPv4() (*net.IPNet, error)
+	SetIPv4(*net.IPNet) error
+	IPv6() (*net.IPNet, error)
+	SetIPv6(*net.IPNet) error
 }
 
 // TapAdapter represents a tap adapter.
@@ -19,6 +23,8 @@ type TapAdapter interface {
 // TunAdapter represents a tun adapter.
 type TunAdapter interface {
 	Adapter
+	RemoteIPv4() (net.IP, error)
+	SetRemoteIPv4(net.IP) error
 }
 
 // TapAdapterConfig represents a tap adapter config.
@@ -52,6 +58,10 @@ type TunAdapterConfig struct {
 	IPv4 *net.IPNet
 
 	// RemoteIPv4 is a remote IPv4 address to set on the interface after its goes up.
+	//
+	// This will set the remote address on the interface, but only on Linux.
+	//
+	// On other platforms, a route is registered instead.
 	RemoteIPv4 *net.IP
 
 	// IPv6 is an IPv6 address to set on the interface after its goes up.

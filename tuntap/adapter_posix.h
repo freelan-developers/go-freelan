@@ -429,3 +429,38 @@ int set_adapter_remote_ipv4(struct adapter* ta, struct in_addr addr) {
     return 0;
 #endif
 }
+
+int get_adapter_remote_ipv4(struct adapter* ta, struct in_addr *addr) {
+#ifdef MACINTOSH
+    // The TUN adapter for Mac OSX has a weird behavior regarding routes and ioctl.
+
+    // For some reason, on Mac, setting up the IP address using ioctl() doesn't work for TUN devices.
+    // OSX apparently does not create a route even though ifconfig indicates that the netmask is understood.
+    // We must create it ourselves.
+    errno = ENOSYS;
+    return -1;
+#else
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    struct ifreq ifr = {};
+    strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
+
+    struct sockaddr_in* ifr_dst_addr = (struct sockaddr_in*)(&ifr.ifr_dstaddr);
+    ifr_dst_addr->sin_family = AF_INET;
+#ifdef BSD
+    ifr_dst_addr->sin_len = sizeof(struct sockaddr_in);
+#endif
+    memcpy(&ifr_dst_addr->sin_addr.s_addr, &addr.s_addr, sizeof(struct in_addr));
+
+    if (ioctl(sock, SIOCGIFDSTADDR, &ifr) < 0) {
+        // If the address is already set, we ignore it.
+        if (errno != EEXIST) {
+            close(sock);
+            return -1;
+        }
+    }
+
+    close(sock);
+    return 0;
+#endif
+}

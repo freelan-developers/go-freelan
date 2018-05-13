@@ -56,6 +56,8 @@ func TestTunAdapter(t *testing.T) {
 
 	defer tun.Close()
 
+	fmt.Println(tun.RemoteIPv4())
+
 	fmt.Println(tun.Interface().Addrs())
 	buf := make([]byte, tun.Interface().MTU)
 	n, err := tun.Read(buf)
