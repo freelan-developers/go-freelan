@@ -7,7 +7,6 @@ import (
 	"net"
 	"runtime"
 	"syscall"
-	"unsafe"
 
 	"github.com/freelan-developers/go-freelan/routing"
 )
@@ -60,8 +59,8 @@ func (t *adapterDescriptor) SetIPv4(addr *net.IPNet) error {
 }
 
 func (t *adapterDescriptor) RemoteIPv4() (net.IP, error) {
-	result := net.IP(make([]byte, 4))
-	ipBytes := unsafe.Pointer(&result)
+	ipBytes := C.malloc(4)
+	defer C.free(ipBytes)
 
 	_, err := C.get_adapter_remote_ipv4(t.ptr, (*C.struct_in_addr)(ipBytes))
 
@@ -69,6 +68,7 @@ func (t *adapterDescriptor) RemoteIPv4() (net.IP, error) {
 		return nil, err
 	}
 
+	result := net.IPv6zero
 	return result, nil
 }
 
