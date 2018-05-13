@@ -142,6 +142,10 @@ func (a *adapterImpl) RemoteIPv4() (net.IP, error) {
 }
 
 func (a *adapterImpl) SetRemoteIPv4(ip net.IP) error {
+	// If the remote IPv4 is in the same network, we can use an I/O control
+	// command to set it directly. If it isn't, we must simulate it through a
+	// network route.
+
 	//TODO: Implement.
 	return nil
 }
