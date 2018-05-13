@@ -69,7 +69,7 @@ func (t *adapterDescriptor) RemoteIPv4() (net.IP, error) {
 	}
 
 	b := (*[4]byte)(ipBytes)[0:4]
-	result := net.IP(b)
+	result := net.IPv4(b[0], b[1], b[2], b[3])
 	return result, nil
 }
 
