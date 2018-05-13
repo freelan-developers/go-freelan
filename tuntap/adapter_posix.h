@@ -450,7 +450,6 @@ int get_adapter_remote_ipv4(struct adapter* ta, struct in_addr *addr) {
 #ifdef BSD
     ifr_dst_addr->sin_len = sizeof(struct sockaddr_in);
 #endif
-    memcpy(&ifr_dst_addr->sin_addr.s_addr, &addr.s_addr, sizeof(struct in_addr));
 
     if (ioctl(sock, SIOCGIFDSTADDR, &ifr) < 0) {
         // If the address is already set, we ignore it.
@@ -459,6 +458,8 @@ int get_adapter_remote_ipv4(struct adapter* ta, struct in_addr *addr) {
             return -1;
         }
     }
+
+    memcpy(&addr->s_addr, &ifr_dst_addr->sin_addr.s_addr, sizeof(struct in_addr));
 
     close(sock);
     return 0;
