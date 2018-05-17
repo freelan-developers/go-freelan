@@ -25,6 +25,7 @@ const (
 
 var (
 	tapWinIoctlSetMediaStatus = tapCtlCode(6)
+	tapWinIoctlConfigTun      = tapCtlCode(10)
 )
 
 func tapCtlCode(function uint32) uint32 {
@@ -39,9 +40,16 @@ type adapterImpl struct {
 	io.ReadWriteCloser
 	handle syscall.Handle
 	inf    *net.Interface
+	mode   adapterMode
 }
+type adapterMode int
 
-func newAdapter(name string) (*adapterImpl, error) {
+const (
+	tapAdapter adapterMode = iota
+	tunAdapter
+)
+
+func newAdapter(name string, mode adapterMode) (*adapterImpl, error) {
 	aas, err := getTapAdaptersAddresses()
 
 	if err != nil {
@@ -79,12 +87,25 @@ func newAdapter(name string) (*adapterImpl, error) {
 		return nil, err
 	}
 
-	adapter := &adapterImpl{rwc, h, inf}
+	adapter := &adapterImpl{rwc, h, inf, mode}
+	runtime.SetFinalizer(adapter, (*adapterImpl).Close)
+
+	if mode == tunAdapter {
+		if err = adapter.setTunMode(nil); err != nil {
+			adapter.Close()
+			return nil, err
+		}
+	}
 
 	if err = adapter.SetConnectedState(true); err != nil {
+		adapter.Close()
 		return nil, fmt.Errorf("failed to bring the device up: %s", err)
 	}
-	runtime.SetFinalizer(adapter, (*adapterImpl).Close)
+
+	// Access denied is okay: the user may not have administrative rights.
+	if err = adapter.FlushARPTable(); err != nil && err != windows.ERROR_ACCESS_DENIED {
+		return nil, fmt.Errorf("failed to flush ARP table: %s", err)
+	}
 
 	return adapter, nil
 }
@@ -95,11 +116,21 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 		config = NewTapAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config.Name)
+	adapter, err := newAdapter(config.Name, tapAdapter)
 
-	// TODO: Set configuration.
+	if err != nil {
+		return nil, err
+	}
 
-	return adapter, err
+	if config.IPv4 != nil {
+		adapter.SetIPv4(config.IPv4)
+	}
+
+	if config.IPv6 != nil {
+		adapter.SetIPv6(config.IPv6)
+	}
+
+	return adapter, nil
 }
 
 // NewTunAdapter instantiates a new tun adapter.
@@ -108,11 +139,44 @@ func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
 		config = NewTunAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config.Name)
+	adapter, err := newAdapter(config.Name, tunAdapter)
 
-	// TODO: Set configuration.
+	if err != nil {
+		return nil, err
+	}
 
-	return adapter, err
+	if config.IPv4 != nil {
+		adapter.SetIPv4(config.IPv4)
+	}
+
+	if config.IPv6 != nil {
+		adapter.SetIPv6(config.IPv6)
+	}
+
+	return adapter, nil
+}
+
+func (a *adapterImpl) FlushARPTable() error {
+	lib, err := syscall.LoadLibrary("iphlpapi.dll")
+
+	if err != nil {
+		return fmt.Errorf("unable to load library: %s", err)
+	}
+
+	addr, err := syscall.GetProcAddress(syscall.Handle(lib), "FlushIpNetTable")
+
+	if err != nil {
+		return fmt.Errorf("unable to get procedure address: %s", err)
+	}
+
+	r, _, _ := syscall.Syscall(addr, 1, uintptr(a.Interface().Index), 0, 0)
+
+	switch r {
+	case windows.NO_ERROR:
+		return nil
+	default:
+		return syscall.Errno(r)
+	}
 }
 
 func (a *adapterImpl) Close() error {
@@ -122,7 +186,34 @@ func (a *adapterImpl) Close() error {
 	return a.ReadWriteCloser.Close()
 }
 
+func (a *adapterImpl) setTunMode(ip *net.IPNet) error {
+	var bytesReturned uint32
+	var data [12]byte
+	var unused [4]byte
+
+	if ip != nil {
+		copy(data[0:4], ip.IP.To4())
+		copy(data[4:8], ip.IP.Mask(ip.Mask))
+		copy(data[8:12], ip.Mask)
+	}
+
+	return syscall.DeviceIoControl(
+		a.handle,
+		tapWinIoctlConfigTun,
+		&data[0],
+		uint32(len(data)),
+		&unused[0],
+		uint32(len(unused)),
+		&bytesReturned,
+		nil,
+	)
+}
+
 func (a *adapterImpl) SetIPv4(ip *net.IPNet) error {
+	if a.mode == tunAdapter {
+		a.setTunMode(ip)
+	}
+
 	//TODO: Implement.
 	return nil
 }
@@ -134,20 +225,6 @@ func (a *adapterImpl) SetIPv6(ip *net.IPNet) error {
 
 func (a *adapterImpl) Interface() *net.Interface {
 	return a.inf
-}
-
-func (a *adapterImpl) RemoteIPv4() (net.IP, error) {
-	//TODO: Implement.
-	return nil, nil
-}
-
-func (a *adapterImpl) SetRemoteIPv4(ip net.IP) error {
-	// If the remote IPv4 is in the same network, we can use an I/O control
-	// command to set it directly. If it isn't, we must simulate it through a
-	// network route.
-
-	//TODO: Implement.
-	return nil
 }
 
 func (a *adapterImpl) SetConnectedState(connected bool) error {

@@ -31,17 +31,16 @@ func TestTapAdapter(t *testing.T) {
 	buf := make([]byte, tap.Interface().MTU)
 	n, err := tap.Read(buf)
 	fmt.Println(n, err)
+	fmt.Printf("%0x\n", buf[0:n])
 	time.Sleep(time.Millisecond * 1000)
 }
 
 func TestTunAdapter(t *testing.T) {
-	remoteIP := net.ParseIP("10.0.0.2")
 	config := &TunAdapterConfig{
 		IPv4: &net.IPNet{
 			IP:   net.ParseIP("192.168.10.10"),
 			Mask: net.CIDRMask(24, 32),
 		},
-		RemoteIPv4: &remoteIP,
 	}
 
 	tun, err := NewTunAdapter(config)
@@ -56,11 +55,10 @@ func TestTunAdapter(t *testing.T) {
 
 	defer tun.Close()
 
-	fmt.Println(tun.RemoteIPv4())
-
 	fmt.Println(tun.Interface().Addrs())
 	buf := make([]byte, tun.Interface().MTU)
 	n, err := tun.Read(buf)
 	fmt.Println(n, err)
+	fmt.Printf("%0x\n", buf[0:n])
 	time.Sleep(time.Millisecond * 1000)
 }
