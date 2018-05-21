@@ -2,11 +2,19 @@ package tuntap
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
 )
 
+func closeAndCheck(t *testing.T, c io.Closer) {
+	t.Helper()
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("failed to close: %s", err)
+	}
+}
 func TestTapAdapter(t *testing.T) {
 	config := &TapAdapterConfig{
 		IPv4: &net.IPNet{
@@ -25,7 +33,7 @@ func TestTapAdapter(t *testing.T) {
 		t.Fatal("expected not nil")
 	}
 
-	defer tap.Close()
+	defer closeAndCheck(t, tap)
 
 	fmt.Println(tap.Interface().Addrs())
 	buf := make([]byte, tap.Interface().MTU)
@@ -38,7 +46,7 @@ func TestTapAdapter(t *testing.T) {
 func TestTunAdapter(t *testing.T) {
 	config := &TunAdapterConfig{
 		IPv4: &net.IPNet{
-			IP:   net.ParseIP("192.168.10.10"),
+			IP:   net.ParseIP("192.168.11.10"),
 			Mask: net.CIDRMask(24, 32),
 		},
 	}
@@ -53,7 +61,7 @@ func TestTunAdapter(t *testing.T) {
 		t.Fatal("expected not nil")
 	}
 
-	defer tun.Close()
+	defer closeAndCheck(t, tun)
 
 	fmt.Println(tun.Interface().Addrs())
 	buf := make([]byte, tun.Interface().MTU)

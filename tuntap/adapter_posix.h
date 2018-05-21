@@ -61,6 +61,7 @@ typedef enum {
 struct adapter {
     int fd;
     char name[IFNAMSIZ];
+    adapter_layer layer;
 };
 
 const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
@@ -134,6 +135,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 
     struct adapter* result = (struct adapter*)malloc(sizeof(struct adapter));
     result->fd = device;
+    result->layer = layer;
     strncpy(result->name, ifr.ifr_name, IFNAMSIZ);
 
 #else /* *BSD and Mac OS X */
@@ -185,6 +187,7 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 
     struct adapter* result = (struct adapter*)malloc(sizeof(struct adapter));
     result->fd = device;
+    result->layer = layer;
 
 #ifdef __NetBSD__
     if (devname_r(st.st_dev, S_IFCHR, result->name, IFNAMSIZ - 1) != 0) {
@@ -211,8 +214,8 @@ const struct adapter* open_adapter(adapter_layer layer, const char* _name) {
 
 int close_adapter(struct adapter* ta) {
     // only attempt to destroy interface if non-root.
-    if (getuid() == 0) {
 #if defined(MACINTOSH) || defined(BSD)
+    if (getuid() == 0) {
         int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
         if (sock < 0) {
@@ -221,19 +224,17 @@ int close_adapter(struct adapter* ta) {
         }
 
         struct ifreq ifr = {};
-        memset(ifr.ifr_name, 0x00, IFNAMSIZ);
         strncpy(ifr.ifr_name, ta->name, IFNAMSIZ);
 
         // Destroy the virtual tap device
-        if (ioctl(sock, SIOCIFDESTROY, &ifr) < 0) {
-            close(sock);
-            free(ta);
-            return -1;
-        }
-
+        //
+        // This may fail for legitimate reasons, so we don't care about
+        // failures.
+        ioctl(sock, SIOCIFDESTROY, &ifr);
+        errno = 0;
         close(sock);
-#endif
     }
+#endif
 
     if (close(ta->fd) != 0) {
         free(ta);
