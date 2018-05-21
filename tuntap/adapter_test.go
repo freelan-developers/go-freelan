@@ -42,6 +42,7 @@ func TestTapAdapter(t *testing.T) {
 	fmt.Println(tap.Interface().Addrs())
 	buf := make([]byte, tap.Interface().MTU)
 	if n, err := tap.Read(buf); err == nil {
+		fmt.Println(hex.EncodeToString(buf[:n]))
 		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
 
 		for i, layer := range packet.Layers() {
