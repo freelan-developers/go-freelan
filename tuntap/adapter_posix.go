@@ -222,6 +222,11 @@ func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
 		}
 	}
 
+	if err = adapter.SetConnectedState(true); err != nil {
+		adapter.Close()
+		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
+	}
+
 	return adapter, nil
 }
 
