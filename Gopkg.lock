@@ -8,27 +8,26 @@
   version = "v0.4.7"
 
 [[projects]]
+  name = "github.com/google/gopacket"
+  packages = [".","layers"]
+  revision = "11c65f1ca9081dfea43b4f9643f5c155583b73ba"
+  version = "v1.1.14"
+
+[[projects]]
   name = "github.com/magefile/mage"
-  packages = [
-    "mg",
-    "sh",
-    "types"
-  ]
+  packages = ["mg","sh","types"]
   revision = "771ebed3d686dce3d36cab4fc9ee55c295ed8905"
   version = "2.1"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
-  packages = [
-    "windows",
-    "windows/registry"
-  ]
+  packages = ["windows","windows/registry"]
   revision = "d0faeb539838e250bd0a9db4182d48d4a1915181"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "bdf4fc7b85c9bf16dbdc8f864533d87dc72d6a7544f3aa008991ad1fa0d0b047"
+  inputs-digest = "995f1068bbb72f8e0ca45291bf4ebcc7fe6942fd7459ec0d9050587f7dbdb428"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,11 +1,15 @@
 package tuntap
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
 
 func closeAndCheck(t *testing.T, c io.Closer) {
@@ -37,9 +41,13 @@ func TestTapAdapter(t *testing.T) {
 
 	fmt.Println(tap.Interface().Addrs())
 	buf := make([]byte, tap.Interface().MTU)
-	n, err := tap.Read(buf)
-	fmt.Println(n, err)
-	fmt.Printf("%0x\n", buf[0:n])
+	if n, err := tap.Read(buf); err == nil {
+		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
+
+		for i, layer := range packet.Layers() {
+			fmt.Println(i, layer.LayerType())
+		}
+	}
 	time.Sleep(time.Millisecond * 1000)
 }
 
@@ -65,8 +73,13 @@ func TestTunAdapter(t *testing.T) {
 
 	fmt.Println(tun.Interface().Addrs())
 	buf := make([]byte, tun.Interface().MTU)
-	n, err := tun.Read(buf)
-	fmt.Println(n, err)
-	fmt.Printf("%0x\n", buf[0:n])
+	if n, err := tun.Read(buf); err == nil {
+		fmt.Println(hex.EncodeToString(buf[:n]))
+		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeIPv4, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
+
+		for i, layer := range packet.Layers() {
+			fmt.Println(i, layer.LayerType(), hex.EncodeToString(layer.LayerContents()))
+		}
+	}
 	time.Sleep(time.Millisecond * 1000)
 }
