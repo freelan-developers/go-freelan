@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -211,15 +213,61 @@ func (a *adapterImpl) setTunMode(ip *net.IPNet) error {
 
 func (a *adapterImpl) SetIPv4(ip *net.IPNet) error {
 	if a.mode == tunAdapter {
-		a.setTunMode(ip)
+		if err := a.setTunMode(ip); err != nil {
+			return err
+		}
 	}
 
-	//TODO: Implement.
-	return nil
+	ones, _ := ip.Mask.Size()
+	args := []string{
+		"interface",
+		"ip",
+		"set",
+		"address",
+		"name=" + a.inf.Name,
+		"source=static",
+		fmt.Sprintf("address=%s/%d", ip.IP, ones),
+		"gateway=none",
+		"store=active",
+	}
+
+	// This will always fail silently if the caller doesn't have administrative rights...
+	//
+	// As such, Windows should always rely on the fake DHCP emulation for IPv4
+	// address configuration.
+	return a.netsh(args...)
 }
 
 func (a *adapterImpl) SetIPv6(ip *net.IPNet) error {
-	//TODO: Implement.
+	// This will always fail silently if the caller doesn't have administrative rights...
+	//
+	// As such, Windows should always rely on the fake DHCP emulation for IPv6
+	// address configuration.
+	ones, _ := ip.Mask.Size()
+	args := []string{
+		"interface",
+		"ipv6",
+		"set",
+		"address",
+		"interface=" + a.inf.Name,
+		fmt.Sprintf("address=%s/%d", ip.IP, ones),
+		"store=active",
+	}
+
+	return a.netsh(args...)
+}
+
+func (a *adapterImpl) netsh(args ...string) error {
+	cmd := exec.Command("netsh", args...)
+
+	// netsh failure isn't properly reported through Run() and its output is
+	// locale-dependent, making any parsing impossible...
+	err := cmd.Run()
+
+	if err != nil {
+		return fmt.Errorf("failed to call `netsh %s`: %s", strings.Join(args, " "), err)
+	}
+
 	return nil
 }
 
