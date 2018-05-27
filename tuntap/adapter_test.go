@@ -21,7 +21,7 @@ func closeAndCheck(t *testing.T, c io.Closer) {
 }
 
 func TestTapAdapter(t *testing.T) {
-	config := &TapAdapterConfig{
+	config := &AdapterConfig{
 		IPv4: &net.IPNet{
 			IP:   net.ParseIP("192.168.10.10"),
 			Mask: net.CIDRMask(24, 32),
@@ -54,7 +54,7 @@ func TestTapAdapter(t *testing.T) {
 }
 
 func TestTunAdapter(t *testing.T) {
-	config := &TunAdapterConfig{
+	config := &AdapterConfig{
 		IPv4: &net.IPNet{
 			IP:   net.ParseIP("192.168.11.10"),
 			Mask: net.CIDRMask(24, 32),

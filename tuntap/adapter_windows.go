@@ -113,9 +113,9 @@ func newAdapter(name string, mode adapterMode) (*adapterImpl, error) {
 }
 
 // NewTapAdapter instantiates a new tap adapter.
-func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
+func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
-		config = NewTapAdapterConfig()
+		config = NewAdapterConfig()
 	}
 
 	adapter, err := newAdapter(config.Name, tapAdapter)
@@ -136,9 +136,9 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 }
 
 // NewTunAdapter instantiates a new tun adapter.
-func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
+func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
-		config = NewTunAdapterConfig()
+		config = NewAdapterConfig()
 	}
 
 	adapter, err := newAdapter(config.Name, tunAdapter)

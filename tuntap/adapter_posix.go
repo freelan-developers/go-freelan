@@ -143,9 +143,9 @@ func newAdapter(name string, _type C.adapter_layer) (*adapterDescriptor, error) 
 }
 
 // NewTapAdapter instantiates a new tap adapter.
-func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
+func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
-		config = NewTapAdapterConfig()
+		config = NewAdapterConfig()
 	}
 
 	desc, err := newAdapter(config.Name, C.AL_ETHERNET)
@@ -188,9 +188,9 @@ func NewTapAdapter(config *TapAdapterConfig) (TapAdapter, error) {
 }
 
 // NewTunAdapter instantiates a new tun adapter.
-func NewTunAdapter(config *TunAdapterConfig) (TunAdapter, error) {
+func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
-		config = NewTunAdapterConfig()
+		config = NewAdapterConfig()
 	}
 
 	desc, err := newAdapter(config.Name, C.AL_IP)
