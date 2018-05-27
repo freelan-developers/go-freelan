@@ -42,6 +42,7 @@ type adapterImpl struct {
 	io.ReadWriteCloser
 	handle syscall.Handle
 	inf    *net.Interface
+	config *AdapterConfig
 	mode   adapterMode
 }
 type adapterMode int
@@ -51,7 +52,7 @@ const (
 	tunAdapter
 )
 
-func newAdapter(name string, mode adapterMode) (*adapterImpl, error) {
+func newAdapter(config *AdapterConfig, mode adapterMode) (*adapterImpl, error) {
 	aas, err := getTapAdaptersAddresses()
 
 	if err != nil {
@@ -62,13 +63,13 @@ func newAdapter(name string, mode adapterMode) (*adapterImpl, error) {
 	var aa adapterAddresses
 
 	for _, aa = range aas {
-		if name == "" || name == aa.Name {
+		if config.Name == "" || config.Name == aa.Name {
 			if h, err = openTapAdapter(aa.Name); err == nil {
 				break
 			}
 
-			if name != "" {
-				return nil, fmt.Errorf("failed to open TAP adapter `%s`: %s", name, err)
+			if config.Name != "" {
+				return nil, fmt.Errorf("failed to open TAP adapter `%s`: %s", config.Name, err)
 			}
 		}
 	}
@@ -89,7 +90,7 @@ func newAdapter(name string, mode adapterMode) (*adapterImpl, error) {
 		return nil, err
 	}
 
-	adapter := &adapterImpl{rwc, h, inf, mode}
+	adapter := &adapterImpl{rwc, h, inf, config, mode}
 	runtime.SetFinalizer(adapter, (*adapterImpl).Close)
 
 	if mode == tunAdapter {
@@ -118,7 +119,7 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config.Name, tapAdapter)
+	adapter, err := newAdapter(config, tapAdapter)
 
 	if err != nil {
 		return nil, err
@@ -141,7 +142,7 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config.Name, tunAdapter)
+	adapter, err := newAdapter(config, tunAdapter)
 
 	if err != nil {
 		return nil, err
@@ -273,6 +274,10 @@ func (a *adapterImpl) netsh(args ...string) error {
 
 func (a *adapterImpl) Interface() *net.Interface {
 	return a.inf
+}
+
+func (a *adapterImpl) Config() AdapterConfig {
+	return *a.config
 }
 
 func (a *adapterImpl) SetConnectedState(connected bool) error {

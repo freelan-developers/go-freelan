@@ -20,7 +20,8 @@ import "C"
 
 type adapterImpl struct {
 	*adapterDescriptor
-	inf *net.Interface
+	inf    *net.Interface
+	config *AdapterConfig
 }
 
 type adapterDescriptor struct {
@@ -163,6 +164,7 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 	adapter := &adapterImpl{
 		adapterDescriptor: desc,
 		inf:               inf,
+		config:            config,
 	}
 
 	if config.IPv4 != nil {
@@ -208,6 +210,7 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	adapter := &adapterImpl{
 		adapterDescriptor: desc,
 		inf:               inf,
+		config:            config,
 	}
 
 	if config.IPv4 != nil {
@@ -232,4 +235,8 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 
 func (a *adapterImpl) Interface() *net.Interface {
 	return a.inf
+}
+
+func (a *adapterImpl) Config() AdapterConfig {
+	return *a.config
 }

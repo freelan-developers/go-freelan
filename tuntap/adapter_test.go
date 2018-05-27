@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -20,7 +21,17 @@ func closeAndCheck(t *testing.T, c io.Closer) {
 	}
 }
 
+func skipIfNotRoot(t *testing.T) {
+	t.Helper()
+
+	if os.Geteuid() > 0 {
+		t.Skip("must be root")
+	}
+}
+
 func TestTapAdapter(t *testing.T) {
+	skipIfNotRoot(t)
+
 	config := &AdapterConfig{
 		IPv4: &net.IPNet{
 			IP:   net.ParseIP("192.168.10.10"),
@@ -54,6 +65,8 @@ func TestTapAdapter(t *testing.T) {
 }
 
 func TestTunAdapter(t *testing.T) {
+	skipIfNotRoot(t)
+
 	config := &AdapterConfig{
 		IPv4: &net.IPNet{
 			IP:   net.ParseIP("192.168.11.10"),

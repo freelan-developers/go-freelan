@@ -9,6 +9,7 @@ import (
 type Adapter interface {
 	io.ReadWriteCloser
 	Interface() *net.Interface
+	Config() AdapterConfig
 	IPv4() (*net.IPNet, error)
 	SetIPv4(*net.IPNet) error
 	IPv6() (*net.IPNet, error)
