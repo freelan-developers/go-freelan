@@ -19,6 +19,7 @@ func closeAndCheck(t *testing.T, c io.Closer) {
 		t.Fatalf("failed to close: %s", err)
 	}
 }
+
 func TestTapAdapter(t *testing.T) {
 	config := &TapAdapterConfig{
 		IPv4: &net.IPNet{
