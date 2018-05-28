@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	winio "github.com/Microsoft/go-winio"
+	"github.com/google/gopacket/layers"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -114,12 +115,12 @@ func newAdapter(config *AdapterConfig, mode adapterMode) (*adapterImpl, error) {
 }
 
 // NewTapAdapter instantiates a new tap adapter.
-func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
+func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 	if config == nil {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config, tapAdapter)
+	adapter, err = newAdapter(config, tapAdapter)
 
 	if err != nil {
 		return nil, err
@@ -131,18 +132,25 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 
 	if config.IPv6 != nil {
 		adapter.SetIPv6(config.IPv6)
+	}
+
+	if !config.DisableDHCP {
+		adapter = &DHCPProxyAdapter{
+			Adapter:   adapter,
+			RootLayer: layers.LayerTypeEthernet,
+		}
 	}
 
 	return adapter, nil
 }
 
 // NewTunAdapter instantiates a new tun adapter.
-func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
+func NewTunAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 	if config == nil {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err := newAdapter(config, tunAdapter)
+	adapter, err = newAdapter(config, tunAdapter)
 
 	if err != nil {
 		return nil, err
@@ -154,6 +162,13 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 
 	if config.IPv6 != nil {
 		adapter.SetIPv6(config.IPv6)
+	}
+
+	if !config.DisableDHCP {
+		adapter = &DHCPProxyAdapter{
+			Adapter:   adapter,
+			RootLayer: layers.LayerTypeIPv4,
+		}
 	}
 
 	return adapter, nil

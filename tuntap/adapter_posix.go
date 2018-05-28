@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/freelan-developers/go-freelan/routing"
+	"github.com/google/gopacket/layers"
 )
 
 /*
@@ -186,6 +187,13 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
 	}
 
+	if !config.DisableDHCP {
+		return &DHCPProxyAdapter{
+			Adapter:   adapter,
+			RootLayer: layers.LayerTypeEthernet,
+		}, nil
+	}
+
 	return adapter, nil
 }
 
@@ -228,6 +236,13 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if err = adapter.SetConnectedState(true); err != nil {
 		adapter.Close()
 		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
+	}
+
+	if !config.DisableDHCP {
+		return &DHCPProxyAdapter{
+			Adapter:   adapter,
+			RootLayer: layers.LayerTypeIPv4,
+		}, nil
 	}
 
 	return adapter, nil

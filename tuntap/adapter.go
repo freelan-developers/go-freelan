@@ -31,6 +31,9 @@ type AdapterConfig struct {
 
 	// IPv6 is an IPv6 address to set on the interface after its goes up.
 	IPv6 *net.IPNet
+
+	// DisableDHCP disables the fake DHCP server.
+	DisableDHCP bool
 }
 
 // NewAdapterConfig instantiate a new default configuration.
