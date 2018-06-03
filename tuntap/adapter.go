@@ -10,10 +10,6 @@ type Adapter interface {
 	io.ReadWriteCloser
 	Interface() *net.Interface
 	Config() AdapterConfig
-	IPv4() (*net.IPNet, error)
-	SetIPv4(*net.IPNet) error
-	IPv6() (*net.IPNet, error)
-	SetIPv6(*net.IPNet) error
 }
 
 // AdapterConfig represents a tap adapter config.
@@ -31,6 +27,11 @@ type AdapterConfig struct {
 
 	// IPv6 is an IPv6 address to set on the interface after its goes up.
 	IPv6 *net.IPNet
+
+	// DisableARP disables the ARP proxy.
+	//
+	// This is ignored on TUN adapters.
+	DisableARP bool
 
 	// DisableDHCP disables the fake DHCP server.
 	DisableDHCP bool

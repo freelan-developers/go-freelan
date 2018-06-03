@@ -1,8 +1,6 @@
 package tuntap
 
 import (
-	"fmt"
-
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
@@ -35,10 +33,6 @@ func (a *DHCPProxyAdapter) Read(b []byte) (n int, err error) {
 			packetLayers = packetLayers[i:]
 			break
 		}
-	}
-
-	if len(packetLayers) > 0 {
-		fmt.Println(packetLayers)
 	}
 
 	return

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	ping "github.com/sparrc/go-ping"
 )
 
 func closeAndCheck(t *testing.T, c io.Closer) {
@@ -51,17 +52,43 @@ func TestTapAdapter(t *testing.T) {
 
 	defer closeAndCheck(t, tap)
 
-	fmt.Println(tap.Interface().Addrs())
-	buf := make([]byte, tap.Interface().MTU)
-	if n, err := tap.Read(buf); err == nil {
-		fmt.Println(hex.EncodeToString(buf[:n]))
-		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
+	pinger, err := ping.NewPinger("192.168.10.1")
 
-		for i, layer := range packet.Layers() {
-			fmt.Println(i, layer.LayerType())
+	if err != nil {
+		t.Fatalf("expected no error but got: %s", err)
+	}
+
+	pinger.Count = 3
+	pinger.Timeout = time.Second
+	pinger.OnFinish = func(s *ping.Statistics) {
+		if s.PacketsRecv == 0 {
+			t.Fatal("received no ping response")
 		}
 	}
-	time.Sleep(time.Millisecond * 1000)
+
+	go pinger.Run()
+
+	buf := make([]byte, tap.Interface().MTU)
+
+	for {
+		n, err := tap.Read(buf)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+
+		packet := gopacket.NewPacket(
+			buf[:n],
+			layers.LayerTypeEthernet,
+			gopacket.DecodeOptions{Lazy: true, NoCopy: true},
+		)
+
+		icmpLayer, ok := packet.Layer(layers.LayerTypeICMPv4).(*layers.ICMPv4)
+
+		if ok && icmpLayer != nil {
+			fmt.Println(icmpLayer)
+		}
+	}
 }
 
 func TestTunAdapter(t *testing.T) {

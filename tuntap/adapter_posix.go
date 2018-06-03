@@ -187,14 +187,26 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
 	}
 
-	if !config.DisableDHCP {
-		return &DHCPProxyAdapter{
-			Adapter:   adapter,
-			RootLayer: layers.LayerTypeEthernet,
-		}, nil
+	var result Adapter = adapter
+
+	if !config.DisableARP {
+		arpTable := NewARPTable()
+		arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
+
+		result = &ARPProxyAdapter{
+			Adapter:  result,
+			ARPTable: arpTable,
+		}
 	}
 
-	return adapter, nil
+	if !config.DisableDHCP {
+		result = &DHCPProxyAdapter{
+			Adapter:   result,
+			RootLayer: layers.LayerTypeEthernet,
+		}
+	}
+
+	return result, nil
 }
 
 // NewTunAdapter instantiates a new tun adapter.

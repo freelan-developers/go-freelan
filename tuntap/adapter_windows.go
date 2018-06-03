@@ -134,6 +134,16 @@ func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 		adapter.SetIPv6(config.IPv6)
 	}
 
+	if !config.DisableARP {
+		arpTable := NewARPTable()
+		arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
+
+		adapter = &ARPProxyAdapter{
+			Adapter:  adapter,
+			ARPTable: arpTable,
+		}
+	}
+
 	if !config.DisableDHCP {
 		adapter = &DHCPProxyAdapter{
 			Adapter:   adapter,
