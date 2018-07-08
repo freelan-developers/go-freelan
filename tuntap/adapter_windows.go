@@ -116,16 +116,18 @@ func newAdapter(config *AdapterConfig, mode adapterMode) (*adapterImpl, error) {
 }
 
 // NewTapAdapter instantiates a new tap adapter.
-func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
+func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err = newAdapter(config, tapAdapter)
+	adapter, err := newAdapter(config, tapAdapter)
 
 	if err != nil {
 		return nil, err
 	}
+
+	var result Adapter = adapter
 
 	if config.IPv4 != nil {
 		adapter.SetIPv4(config.IPv4)
@@ -134,20 +136,20 @@ func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 			arpTable := NewARPTable()
 			arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
 
-			adapter = &ARPProxyAdapter{
-				Adapter:  adapter,
+			result = &ARPProxyAdapter{
+				Adapter:  result,
 				ARPTable: arpTable,
 			}
 		}
 
 		if !config.DisableDHCP {
-			adapter = &DHCPProxyAdapter{
-				Adapter:            adapter,
+			result = &DHCPProxyAdapter{
+				Adapter:            result,
 				RootLayer:          layers.LayerTypeEthernet,
 				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
 				Entries: DHCPEntries{
 					DHCPEntry{
-						HardwareAddr: adapter.(*adapterImpl).inf.HardwareAddr,
+						HardwareAddr: adapter.inf.HardwareAddr,
 						IPv4:         config.IPv4,
 						LeaseTime:    time.Hour,
 					},
@@ -160,32 +162,34 @@ func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 		adapter.SetIPv6(config.IPv6)
 	}
 
-	return adapter, nil
+	return result, nil
 }
 
 // NewTunAdapter instantiates a new tun adapter.
-func NewTunAdapter(config *AdapterConfig) (adapter Adapter, err error) {
+func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if config == nil {
 		config = NewAdapterConfig()
 	}
 
-	adapter, err = newAdapter(config, tunAdapter)
+	adapter, err := newAdapter(config, tunAdapter)
 
 	if err != nil {
 		return nil, err
 	}
 
+	var result Adapter = adapter
+
 	if config.IPv4 != nil {
 		adapter.SetIPv4(config.IPv4)
 
 		if !config.DisableDHCP {
-			adapter = &DHCPProxyAdapter{
-				Adapter:            adapter,
+			result = &DHCPProxyAdapter{
+				Adapter:            result,
 				RootLayer:          layers.LayerTypeIPv4,
 				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
 				Entries: DHCPEntries{
 					DHCPEntry{
-						HardwareAddr: adapter.(*adapterImpl).inf.HardwareAddr,
+						HardwareAddr: adapter.inf.HardwareAddr,
 						IPv4:         config.IPv4,
 						LeaseTime:    time.Hour,
 					},
@@ -198,7 +202,7 @@ func NewTunAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 		adapter.SetIPv6(config.IPv6)
 	}
 
-	return adapter, nil
+	return result, nil
 }
 
 func (a *adapterImpl) FlushARPTable() error {
