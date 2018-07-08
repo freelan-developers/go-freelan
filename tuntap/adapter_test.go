@@ -49,7 +49,6 @@ func testPing(t *testing.T, addr string) <-chan bool {
 	go func() {
 		time.Sleep(pinger.Timeout)
 		ch <- false
-		close(ch)
 	}()
 
 	go pinger.Run()
