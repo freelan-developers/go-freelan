@@ -1,8 +1,6 @@
 package tuntap
 
 import (
-	"encoding/hex"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -30,6 +28,35 @@ func skipIfNotRoot(t *testing.T) {
 	}
 }
 
+func testPing(t *testing.T, addr string) <-chan bool {
+	t.Helper()
+
+	pinger, err := ping.NewPinger(addr)
+
+	if err != nil {
+		t.Fatalf("failed to instanciate a pinger: %s", err)
+	}
+
+	ch := make(chan bool, 1)
+
+	pinger.Count = 1
+	pinger.Timeout = time.Second * 3
+	pinger.SetPrivileged(true)
+	pinger.OnFinish = func(s *ping.Statistics) {
+		ch <- (s.PacketsRecv > 0)
+	}
+
+	go func() {
+		time.Sleep(pinger.Timeout)
+		ch <- false
+		close(ch)
+	}()
+
+	go pinger.Run()
+
+	return ch
+}
+
 func TestTapAdapter(t *testing.T) {
 	skipIfNotRoot(t)
 
@@ -52,22 +79,7 @@ func TestTapAdapter(t *testing.T) {
 
 	defer closeAndCheck(t, tap)
 
-	pinger, err := ping.NewPinger("192.168.10.1")
-
-	if err != nil {
-		t.Fatalf("expected no error but got: %s", err)
-	}
-
-	pinger.Count = 3
-	pinger.Timeout = time.Second
-	pinger.OnFinish = func(s *ping.Statistics) {
-		if s.PacketsRecv == 0 {
-			t.Fatal("received no ping response")
-		}
-	}
-
-	go pinger.Run()
-
+	ch := testPing(t, "192.168.10.1")
 	buf := make([]byte, tap.Interface().MTU)
 
 	for {
@@ -83,11 +95,57 @@ func TestTapAdapter(t *testing.T) {
 			gopacket.DecodeOptions{Lazy: true, NoCopy: true},
 		)
 
-		icmpLayer, ok := packet.Layer(layers.LayerTypeICMPv4).(*layers.ICMPv4)
+		ethernet, _ := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
+		ipv4, _ := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4)
+		icmp, _ := packet.Layer(layers.LayerTypeICMPv4).(*layers.ICMPv4)
 
-		if ok && icmpLayer != nil {
-			fmt.Println(icmpLayer)
+		if icmp != nil {
+			ethernetResp := &layers.Ethernet{
+				SrcMAC:       ethernet.DstMAC,
+				DstMAC:       ethernet.SrcMAC,
+				EthernetType: ethernet.EthernetType,
+			}
+			ipv4Resp := &layers.IPv4{
+				Version:    ipv4.Version,
+				IHL:        ipv4.IHL,
+				TOS:        ipv4.TOS,
+				Id:         ipv4.Id,
+				Flags:      ipv4.Flags,
+				FragOffset: ipv4.FragOffset,
+				TTL:        ipv4.TTL,
+				Protocol:   ipv4.Protocol,
+				SrcIP:      ipv4.DstIP,
+				DstIP:      ipv4.SrcIP,
+				Options:    ipv4.Options,
+				Padding:    ipv4.Padding,
+			}
+			icmpResp := &layers.ICMPv4{
+				TypeCode: layers.ICMPv4TypeEchoReply,
+				Id:       icmp.Id,
+				Seq:      icmp.Seq,
+			}
+			payload := gopacket.Payload(icmp.LayerPayload())
+
+			sbuf := gopacket.NewSerializeBuffer()
+			options := gopacket.SerializeOptions{
+				ComputeChecksums: true,
+				FixLengths:       true,
+			}
+
+			if err = gopacket.SerializeLayers(sbuf, options, ethernetResp, ipv4Resp, icmpResp, payload); err != nil {
+				t.Fatalf("expected no error but got: %s", err)
+			}
+
+			if n, err = tap.Write(sbuf.Bytes()); err != nil {
+				t.Fatalf("expected no error but got: %s", err)
+			}
+
+			break
 		}
+	}
+
+	if ok := <-ch; !ok {
+		t.Errorf("received no response")
 	}
 }
 
@@ -113,15 +171,66 @@ func TestTunAdapter(t *testing.T) {
 
 	defer closeAndCheck(t, tun)
 
-	fmt.Println(tun.Interface().Addrs())
+	ch := testPing(t, "192.168.11.1")
 	buf := make([]byte, tun.Interface().MTU)
-	if n, err := tun.Read(buf); err == nil {
-		fmt.Println(hex.EncodeToString(buf[:n]))
-		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeIPv4, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
 
-		for i, layer := range packet.Layers() {
-			fmt.Println(i, layer.LayerType(), hex.EncodeToString(layer.LayerContents()))
+	for {
+		n, err := tun.Read(buf)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+
+		packet := gopacket.NewPacket(
+			buf[:n],
+			layers.LayerTypeIPv4,
+			gopacket.DecodeOptions{Lazy: true, NoCopy: true},
+		)
+
+		ipv4, _ := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4)
+		icmp, _ := packet.Layer(layers.LayerTypeICMPv4).(*layers.ICMPv4)
+
+		if icmp != nil {
+			ipv4Resp := &layers.IPv4{
+				Version:    ipv4.Version,
+				IHL:        ipv4.IHL,
+				TOS:        ipv4.TOS,
+				Id:         ipv4.Id,
+				Flags:      ipv4.Flags,
+				FragOffset: ipv4.FragOffset,
+				TTL:        ipv4.TTL,
+				Protocol:   ipv4.Protocol,
+				SrcIP:      ipv4.DstIP,
+				DstIP:      ipv4.SrcIP,
+				Options:    ipv4.Options,
+				Padding:    ipv4.Padding,
+			}
+			icmpResp := &layers.ICMPv4{
+				TypeCode: layers.ICMPv4TypeEchoReply,
+				Id:       icmp.Id,
+				Seq:      icmp.Seq,
+			}
+			payload := gopacket.Payload(icmp.LayerPayload())
+
+			sbuf := gopacket.NewSerializeBuffer()
+			options := gopacket.SerializeOptions{
+				ComputeChecksums: true,
+				FixLengths:       true,
+			}
+
+			if err = gopacket.SerializeLayers(sbuf, options, ipv4Resp, icmpResp, payload); err != nil {
+				t.Fatalf("expected no error but got: %s", err)
+			}
+
+			if n, err = tun.Write(sbuf.Bytes()); err != nil {
+				t.Fatalf("expected no error but got: %s", err)
+			}
+
+			break
 		}
 	}
-	time.Sleep(time.Millisecond * 1000)
+
+	if ok := <-ch; !ok {
+		t.Errorf("received no response")
+	}
 }
