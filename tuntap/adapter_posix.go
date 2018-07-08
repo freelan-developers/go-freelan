@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/freelan-developers/go-freelan/routing"
 	"github.com/google/gopacket/layers"
@@ -168,10 +169,37 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 		config:            config,
 	}
 
+	var result Adapter = adapter
+
 	if config.IPv4 != nil {
 		if err = adapter.SetIPv4(config.IPv4); err != nil {
 			adapter.Close()
 			return nil, fmt.Errorf("setting IPv4 address to %s: %s", *config.IPv4, err)
+		}
+
+		if !config.DisableARP {
+			arpTable := NewARPTable()
+			arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
+
+			result = &ARPProxyAdapter{
+				Adapter:  result,
+				ARPTable: arpTable,
+			}
+		}
+
+		if !config.DisableDHCP {
+			result = &DHCPProxyAdapter{
+				Adapter:            result,
+				RootLayer:          layers.LayerTypeEthernet,
+				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
+				Entries: DHCPEntries{
+					DHCPEntry{
+						HardwareAddr: inf.HardwareAddr,
+						IPv4:         config.IPv4,
+						LeaseTime:    time.Hour,
+					},
+				},
+			}
 		}
 	}
 
@@ -185,25 +213,6 @@ func NewTapAdapter(config *AdapterConfig) (Adapter, error) {
 	if err = adapter.SetConnectedState(true); err != nil {
 		adapter.Close()
 		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
-	}
-
-	var result Adapter = adapter
-
-	if !config.DisableARP {
-		arpTable := NewARPTable()
-		arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
-
-		result = &ARPProxyAdapter{
-			Adapter:  result,
-			ARPTable: arpTable,
-		}
-	}
-
-	if !config.DisableDHCP {
-		result = &DHCPProxyAdapter{
-			Adapter:   result,
-			RootLayer: layers.LayerTypeEthernet,
-		}
 	}
 
 	return result, nil
@@ -236,6 +245,22 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if config.IPv4 != nil {
 		if err = adapter.SetIPv4(config.IPv4); err != nil {
 			return nil, fmt.Errorf("setting IPv4 address to %s: %s", *config.IPv4, err)
+
+		}
+
+		if !config.DisableDHCP {
+			return &DHCPProxyAdapter{
+				Adapter:            adapter,
+				RootLayer:          layers.LayerTypeIPv4,
+				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
+				Entries: DHCPEntries{
+					DHCPEntry{
+						HardwareAddr: inf.HardwareAddr,
+						IPv4:         config.IPv4,
+						LeaseTime:    time.Hour,
+					},
+				},
+			}, nil
 		}
 	}
 
@@ -248,13 +273,6 @@ func NewTunAdapter(config *AdapterConfig) (Adapter, error) {
 	if err = adapter.SetConnectedState(true); err != nil {
 		adapter.Close()
 		return nil, fmt.Errorf("failed to bring adapter up: %s", err)
-	}
-
-	if !config.DisableDHCP {
-		return &DHCPProxyAdapter{
-			Adapter:   adapter,
-			RootLayer: layers.LayerTypeIPv4,
-		}, nil
 	}
 
 	return adapter, nil

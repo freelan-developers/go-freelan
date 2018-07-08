@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	winio "github.com/Microsoft/go-winio"
@@ -128,27 +129,35 @@ func NewTapAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 
 	if config.IPv4 != nil {
 		adapter.SetIPv4(config.IPv4)
+
+		if !config.DisableARP {
+			arpTable := NewARPTable()
+			arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
+
+			adapter = &ARPProxyAdapter{
+				Adapter:  adapter,
+				ARPTable: arpTable,
+			}
+		}
+
+		if !config.DisableDHCP {
+			adapter = &DHCPProxyAdapter{
+				Adapter:            adapter,
+				RootLayer:          layers.LayerTypeEthernet,
+				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
+				Entries: DHCPEntries{
+					DHCPEntry{
+						HardwareAddr: adapter.(*adapterImpl).inf.HardwareAddr,
+						IPv4:         config.IPv4,
+						LeaseTime:    time.Hour,
+					},
+				},
+			}
+		}
 	}
 
 	if config.IPv6 != nil {
 		adapter.SetIPv6(config.IPv6)
-	}
-
-	if !config.DisableARP {
-		arpTable := NewARPTable()
-		arpTable.Register(config.IPv4, net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE})
-
-		adapter = &ARPProxyAdapter{
-			Adapter:  adapter,
-			ARPTable: arpTable,
-		}
-	}
-
-	if !config.DisableDHCP {
-		adapter = &DHCPProxyAdapter{
-			Adapter:   adapter,
-			RootLayer: layers.LayerTypeEthernet,
-		}
 	}
 
 	return adapter, nil
@@ -168,17 +177,25 @@ func NewTunAdapter(config *AdapterConfig) (adapter Adapter, err error) {
 
 	if config.IPv4 != nil {
 		adapter.SetIPv4(config.IPv4)
+
+		if !config.DisableDHCP {
+			adapter = &DHCPProxyAdapter{
+				Adapter:            adapter,
+				RootLayer:          layers.LayerTypeIPv4,
+				ServerHardwareAddr: net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE},
+				Entries: DHCPEntries{
+					DHCPEntry{
+						HardwareAddr: adapter.(*adapterImpl).inf.HardwareAddr,
+						IPv4:         config.IPv4,
+						LeaseTime:    time.Hour,
+					},
+				},
+			}
+		}
 	}
 
 	if config.IPv6 != nil {
 		adapter.SetIPv6(config.IPv6)
-	}
-
-	if !config.DisableDHCP {
-		adapter = &DHCPProxyAdapter{
-			Adapter:   adapter,
-			RootLayer: layers.LayerTypeIPv4,
-		}
 	}
 
 	return adapter, nil
