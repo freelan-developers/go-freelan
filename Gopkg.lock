@@ -9,25 +9,54 @@
 
 [[projects]]
   name = "github.com/google/gopacket"
-  packages = [".","layers"]
+  packages = [
+    ".",
+    "layers"
+  ]
   revision = "11c65f1ca9081dfea43b4f9643f5c155583b73ba"
   version = "v1.1.14"
 
 [[projects]]
   name = "github.com/magefile/mage"
-  packages = ["mg","sh","types"]
+  packages = [
+    "mg",
+    "sh",
+    "types"
+  ]
   revision = "771ebed3d686dce3d36cab4fc9ee55c295ed8905"
   version = "2.1"
 
 [[projects]]
   branch = "master"
+  name = "github.com/sparrc/go-ping"
+  packages = ["."]
+  revision = "416e72114cd1edce2f287648f935a60dfe6cf40e"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/net"
+  packages = [
+    "bpf",
+    "icmp",
+    "internal/iana",
+    "internal/socket",
+    "ipv4",
+    "ipv6"
+  ]
+  revision = "32a936f46389aa10549d60bd7833e54b01685d09"
+
+[[projects]]
+  branch = "master"
   name = "golang.org/x/sys"
-  packages = ["windows","windows/registry"]
+  packages = [
+    "windows",
+    "windows/registry"
+  ]
   revision = "d0faeb539838e250bd0a9db4182d48d4a1915181"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "995f1068bbb72f8e0ca45291bf4ebcc7fe6942fd7459ec0d9050587f7dbdb428"
+  inputs-digest = "eef7bc450326bc5bb28b931f4ab859aba4e93ef8be8a977b4d0dab83a25b1c9f"
   solver-name = "gps-cdcl"
   solver-version = 1
