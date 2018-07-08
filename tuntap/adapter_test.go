@@ -180,9 +180,15 @@ func TestTunAdapter(t *testing.T) {
 			t.Fatalf("unexpected error: %s", err)
 		}
 
+		layerType := layers.LayerTypeIPv4
+
+		if (buf[0]&0xf0)>>4 == 6 {
+			layerType = layers.LayerTypeIPv6
+		}
+
 		packet := gopacket.NewPacket(
 			buf[:n],
-			layers.LayerTypeIPv4,
+			layerType,
 			gopacket.DecodeOptions{Lazy: true, NoCopy: true},
 		)
 

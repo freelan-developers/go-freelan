@@ -265,23 +265,40 @@ func (a *adapterImpl) SetIPv4(ip *net.IPNet) error {
 		}
 	}
 
-	ones, _ := ip.Mask.Size()
+	if a.Config().DisableDHCP {
+		ones, _ := ip.Mask.Size()
+		args := []string{
+			"interface",
+			"ip",
+			"set",
+			"address",
+			"name=" + a.inf.Name,
+			"source=static",
+			fmt.Sprintf("address=%s/%d", ip.IP, ones),
+			"gateway=none",
+			"store=active",
+		}
+
+		// This will always fail silently if the caller doesn't have administrative rights...
+		//
+		// As such, Windows should always rely on the fake DHCP emulation for IPv4
+		// address configuration.
+		return a.netsh(args...)
+	}
+
+	// Let's try to force the interface in DHCP mode. This requires
+	// administrative rights but it also fails silently.
 	args := []string{
 		"interface",
 		"ip",
 		"set",
 		"address",
 		"name=" + a.inf.Name,
-		"source=static",
-		fmt.Sprintf("address=%s/%d", ip.IP, ones),
-		"gateway=none",
+		"source=dhcp",
 		"store=active",
 	}
 
 	// This will always fail silently if the caller doesn't have administrative rights...
-	//
-	// As such, Windows should always rely on the fake DHCP emulation for IPv4
-	// address configuration.
 	return a.netsh(args...)
 }
 
