@@ -30,17 +30,17 @@ func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) {
 	binary.Write(b, binary.BigEndian, uint32(payloadSize))
 }
 
-func writeHelloMessage(b *bytes.Buffer, t MessageType, uniqueNumber uint32) {
-	writeHeader(b, t, 4)
-	binary.Write(b, binary.BigEndian, uniqueNumber)
+func writeHelloMessage(b *bytes.Buffer, t MessageType, msg messageHello) {
+	writeHeader(b, t, msg.serializationSize())
+	msg.serialize(b)
 }
 
-func writeHelloRequest(b *bytes.Buffer, uniqueNumber uint32) {
-	writeHelloMessage(b, MessageTypeHelloRequest, uniqueNumber)
+func writeHelloRequest(b *bytes.Buffer, msg messageHello) {
+	writeHelloMessage(b, MessageTypeHelloRequest, msg)
 }
 
-func writeHelloResponse(b *bytes.Buffer, uniqueNumber uint32) {
-	writeHelloMessage(b, MessageTypeHelloResponse, uniqueNumber)
+func writeHelloResponse(b *bytes.Buffer, msg messageHello) {
+	writeHelloMessage(b, MessageTypeHelloResponse, msg)
 }
 
 func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
@@ -64,7 +64,7 @@ func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
 	return
 }
 
-func readMessage(b *bytes.Reader) (t MessageType, msg interface{}, err error) {
+func readMessage(b *bytes.Reader) (t MessageType, msg genericMessage, err error) {
 	var payloadSize int
 
 	if t, payloadSize, err = readHeader(b); err != nil {
@@ -76,30 +76,49 @@ func readMessage(b *bytes.Reader) (t MessageType, msg interface{}, err error) {
 
 	switch t {
 	case MessageTypeHelloRequest, MessageTypeHelloResponse:
-		msg = MessageHello{}
+		msg = &messageHello{}
 	default:
 		err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
 		return
 	}
 
-	err = binary.Read(b, binary.BigEndian, &msg)
+	err = msg.deserialize(b)
 
 	return
+}
+
+type serializable interface {
+	serializationSize() int
+	serialize(*bytes.Buffer) error
+}
+
+type deserializable interface {
+	deserialize(*bytes.Reader) error
+}
+
+type genericMessage interface {
+	serializable
+	deserializable
 }
 
 // An UniqueNumber is a randomly generated number used during the HELLO exchange.
 type UniqueNumber uint32
 
-// MessageHello is a HELLO message.
-type MessageHello struct {
+// messageHello is a HELLO message.
+type messageHello struct {
 	UniqueNumber UniqueNumber
 }
 
-// UnmarshallBinary unmarshalles the message as a binary stream.
-func (m *MessageHello) UnmarshallBinary(b []byte) (err error) {
-	if len(b) != 4 {
-		return fmt.Errorf("buffer should be %d bytes long but is only %d", 4, len(b))
+func (m *messageHello) serialize(b *bytes.Buffer) error {
+	return binary.Write(b, binary.BigEndian, &m.UniqueNumber)
+}
+
+func (m *messageHello) serializationSize() int { return 4 }
+
+func (m *messageHello) deserialize(b *bytes.Reader) (err error) {
+	if b.Len() != 4 {
+		return fmt.Errorf("buffer should be %d bytes long but is only %d", 4, b.Len())
 	}
 
-	return binary.Read(bytes.NewReader(b), binary.BigEndian, &m.UniqueNumber)
+	return binary.Read(b, binary.BigEndian, &m.UniqueNumber)
 }
