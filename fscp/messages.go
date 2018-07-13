@@ -2,6 +2,7 @@ package fscp
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 )
@@ -20,14 +21,18 @@ const (
 	MessageTypeHelloRequest MessageType = 0x00
 	// MessageTypeHelloResponse is a HELLO response message.
 	MessageTypeHelloResponse MessageType = 0x01
+	// MessageTypePresentation is a PRESENTATION message.
+	MessageTypePresentation MessageType = 0x02
 )
 
 func (m MessageType) String() string {
 	switch m {
 	case MessageTypeHelloRequest:
-		return "HELLO-request"
+		return "HELLO (request)"
 	case MessageTypeHelloResponse:
-		return "HELLO-response"
+		return "HELLO (response)"
+	case MessageTypePresentation:
+		return "PRESENTATION"
 	default:
 		return "unknown message type"
 	}
@@ -41,17 +46,9 @@ func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) {
 	binary.Write(b, binary.BigEndian, uint16(payloadSize))
 }
 
-func writeHelloMessage(b *bytes.Buffer, t MessageType, msg *messageHello) {
+func writeMessage(b *bytes.Buffer, t MessageType, msg serializable) {
 	writeHeader(b, t, msg.serializationSize())
 	msg.serialize(b)
-}
-
-func writeHelloRequest(b *bytes.Buffer, msg *messageHello) {
-	writeHelloMessage(b, MessageTypeHelloRequest, msg)
-}
-
-func writeHelloResponse(b *bytes.Buffer, msg *messageHello) {
-	writeHelloMessage(b, MessageTypeHelloResponse, msg)
 }
 
 func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
@@ -79,7 +76,7 @@ func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
 	return
 }
 
-func readMessage(b *bytes.Reader) (t MessageType, msg genericMessage, err error) {
+func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error) {
 	var payloadSize int
 
 	if t, payloadSize, err = readHeader(b); err != nil {
@@ -92,6 +89,8 @@ func readMessage(b *bytes.Reader) (t MessageType, msg genericMessage, err error)
 	switch t {
 	case MessageTypeHelloRequest, MessageTypeHelloResponse:
 		msg = &messageHello{}
+	case MessageTypePresentation:
+		msg = &messagePresentation{}
 	default:
 		err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
 		return
@@ -109,11 +108,6 @@ type serializable interface {
 
 type deserializable interface {
 	deserialize(*bytes.Reader) error
-}
-
-type genericMessage interface {
-	serializable
-	deserializable
 }
 
 // An UniqueNumber is a randomly generated number used during the HELLO exchange.
@@ -136,4 +130,56 @@ func (m *messageHello) deserialize(b *bytes.Reader) (err error) {
 	}
 
 	return binary.Read(b, binary.BigEndian, &m.UniqueNumber)
+}
+
+// messagePresentation is a HELLO message.
+type messagePresentation struct {
+	Certificate *x509.Certificate
+}
+
+func (m *messagePresentation) serialize(b *bytes.Buffer) error {
+	if m.Certificate == nil {
+		return binary.Write(b, binary.BigEndian, uint16(0))
+	}
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.Certificate.Raw)))
+	b.Write(m.Certificate.Raw)
+
+	return nil
+}
+
+func (m *messagePresentation) serializationSize() int {
+	if m.Certificate == nil {
+		return 2
+	}
+
+	return 2 + len(m.Certificate.Raw)
+}
+
+func (m *messagePresentation) deserialize(b *bytes.Reader) (err error) {
+	if b.Len() < 2 {
+		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 2, b.Len())
+	}
+
+	var size uint16
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	if size == 0 {
+		m.Certificate = nil
+	} else {
+		if b.Len() < int(size) {
+			return fmt.Errorf("buffer should be at least %d bytes long but is %d", 2+size, 2+b.Len())
+		}
+
+		der := make([]byte, int(size))
+
+		if _, err = b.Read(der); err != nil {
+			return
+		}
+
+		m.Certificate, err = x509.ParseCertificate(der)
+	}
+
+	return
 }
