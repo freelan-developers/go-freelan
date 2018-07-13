@@ -22,24 +22,35 @@ const (
 	MessageTypeHelloResponse MessageType = 0x01
 )
 
+func (m MessageType) String() string {
+	switch m {
+	case MessageTypeHelloRequest:
+		return "HELLO-request"
+	case MessageTypeHelloResponse:
+		return "HELLO-response"
+	default:
+		return "unknown message type"
+	}
+}
+
 // Write a message header to the specified writer.
 func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) {
 	b.Grow(4 + payloadSize)
 	binary.Write(b, binary.BigEndian, uint8(3))
 	binary.Write(b, binary.BigEndian, t)
-	binary.Write(b, binary.BigEndian, uint32(payloadSize))
+	binary.Write(b, binary.BigEndian, uint16(payloadSize))
 }
 
-func writeHelloMessage(b *bytes.Buffer, t MessageType, msg messageHello) {
+func writeHelloMessage(b *bytes.Buffer, t MessageType, msg *messageHello) {
 	writeHeader(b, t, msg.serializationSize())
 	msg.serialize(b)
 }
 
-func writeHelloRequest(b *bytes.Buffer, msg messageHello) {
+func writeHelloRequest(b *bytes.Buffer, msg *messageHello) {
 	writeHelloMessage(b, MessageTypeHelloRequest, msg)
 }
 
-func writeHelloResponse(b *bytes.Buffer, msg messageHello) {
+func writeHelloResponse(b *bytes.Buffer, msg *messageHello) {
 	writeHelloMessage(b, MessageTypeHelloResponse, msg)
 }
 
@@ -58,8 +69,12 @@ func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
 		return
 	}
 
+	var size uint16
+
 	binary.Read(b, binary.BigEndian, &t)
-	binary.Read(b, binary.BigEndian, &payloadSize)
+	binary.Read(b, binary.BigEndian, &size)
+
+	payloadSize = int(size)
 
 	return
 }
@@ -117,7 +132,7 @@ func (m *messageHello) serializationSize() int { return 4 }
 
 func (m *messageHello) deserialize(b *bytes.Reader) (err error) {
 	if b.Len() != 4 {
-		return fmt.Errorf("buffer should be %d bytes long but is only %d", 4, b.Len())
+		return fmt.Errorf("buffer should be %d bytes long but is %d", 4, b.Len())
 	}
 
 	return binary.Read(b, binary.BigEndian, &m.UniqueNumber)
