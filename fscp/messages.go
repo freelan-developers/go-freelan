@@ -23,6 +23,8 @@ const (
 	MessageTypeHelloResponse MessageType = 0x01
 	// MessageTypePresentation is a PRESENTATION message.
 	MessageTypePresentation MessageType = 0x02
+	// MessageTypeSessionRequest is a SESSION REQUEST message.
+	MessageTypeSessionRequest MessageType = 0x03
 )
 
 func (m MessageType) String() string {
@@ -33,6 +35,8 @@ func (m MessageType) String() string {
 		return "HELLO (response)"
 	case MessageTypePresentation:
 		return "PRESENTATION"
+	case MessageTypeSessionRequest:
+		return "SESSION (request)"
 	default:
 		return "unknown message type"
 	}
@@ -91,6 +95,8 @@ func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error)
 		msg = &messageHello{}
 	case MessageTypePresentation:
 		msg = &messagePresentation{}
+	case MessageTypeSessionRequest:
+		msg = &messageSessionRequest{}
 	default:
 		err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
 		return
@@ -180,6 +186,101 @@ func (m *messagePresentation) deserialize(b *bytes.Reader) (err error) {
 
 		m.Certificate, err = x509.ParseCertificate(der)
 	}
+
+	return
+}
+
+// SessionNumber represents a session number.
+type SessionNumber uint32
+
+// HostIdentifier represents a host identifier.
+type HostIdentifier uint32
+
+// CipherSuite represents a cipher suite.
+type CipherSuite uint8
+
+const (
+	// CipherSuiteECDHERSAAES128GCMSHA256 is the ECDHE-RSA-AES-128-GCM-SHA256 cipher suite.
+	CipherSuiteECDHERSAAES128GCMSHA256 = 0x01
+	// CipherSuiteECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
+	CipherSuiteECDHERSAAES256GCMSHA384 = 0x02
+)
+
+// EllipticCurve represents an elliptic curve.
+type EllipticCurve uint8
+
+const (
+	// EllipticCurveSECT571K1 is the SECT571K1 elliptic curve.
+	EllipticCurveSECT571K1 = 0x01
+	// EllipticCurveSECP384R1 is the SECP384R1 elliptic curve.
+	EllipticCurveSECP384R1 = 0x02
+	// EllipticCurveSECP521R1 is the SECP521R1 elliptic curve.
+	EllipticCurveSECP521R1 = 0x03
+)
+
+type messageSessionRequest struct {
+	SessionNumber  SessionNumber
+	HostIdentifier HostIdentifier
+	CipherSuites   []CipherSuite
+	EllipticCurves []EllipticCurve
+	Signature      []byte
+}
+
+func (m *messageSessionRequest) serialize(b *bytes.Buffer) error {
+	binary.Write(b, binary.BigEndian, m.SessionNumber)
+	binary.Write(b, binary.BigEndian, m.HostIdentifier)
+	binary.Write(b, binary.BigEndian, uint16(len(m.CipherSuites)))
+
+	for _, cipherSuite := range m.CipherSuites {
+		binary.Write(b, binary.BigEndian, cipherSuite)
+	}
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.EllipticCurves)))
+
+	for _, ellipticCurve := range m.EllipticCurves {
+		binary.Write(b, binary.BigEndian, ellipticCurve)
+	}
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.Signature)))
+	b.Write(m.Signature)
+
+	return nil
+}
+
+func (m *messageSessionRequest) serializationSize() int {
+	return 4 + 4 + 2 + len(m.CipherSuites) + 2 + len(m.EllipticCurves) + 2 + len(m.Signature)
+}
+
+func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
+	if b.Len() < 10 {
+		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 10, b.Len())
+	}
+
+	binary.Read(b, binary.BigEndian, &m.SessionNumber)
+	binary.Read(b, binary.BigEndian, &m.HostIdentifier)
+
+	var size uint16
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.CipherSuites = make([]CipherSuite, size)
+
+	for i := range m.CipherSuites {
+		binary.Read(b, binary.BigEndian, &m.CipherSuites[i])
+	}
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.EllipticCurves = make([]EllipticCurve, size)
+
+	for i := range m.EllipticCurves {
+		binary.Read(b, binary.BigEndian, &m.EllipticCurves[i])
+	}
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.Signature = make([]byte, size)
+	_, err = b.Read(m.Signature)
 
 	return
 }

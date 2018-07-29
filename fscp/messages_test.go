@@ -62,6 +62,29 @@ func TestSerialization(t *testing.T) {
 			MessageType: MessageTypePresentation,
 			Expected:    append([]byte{0x03, 0x02, 0x05, 0xd6, 0x05, 0xd4}, CertificateAlice.Raw...),
 		},
+		{
+			Message: &messageSessionRequest{
+				SessionNumber:  0x22446688,
+				HostIdentifier: 0x12345678,
+				CipherSuites: []CipherSuite{
+					CipherSuiteECDHERSAAES128GCMSHA256,
+					CipherSuiteECDHERSAAES256GCMSHA384,
+				},
+				EllipticCurves: []EllipticCurve{
+					EllipticCurveSECT571K1,
+					EllipticCurveSECP384R1,
+					EllipticCurveSECP521R1,
+				},
+				Signature: []byte{0xaa, 0xbb},
+			},
+			MessageType: MessageTypeSessionRequest,
+			Expected: []byte{
+				0x03, 0x03, 0x00, 0x15,
+				0x22, 0x44, 0x66, 0x88, 0x12, 0x34, 0x56, 0x78,
+				0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x01, 0x02, 0x03,
+				0x00, 0x02, 0xaa, 0xbb,
+			},
+		},
 	}
 
 	for _, testCase := range testCases {

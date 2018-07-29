@@ -13,6 +13,7 @@ var (
 	// Packages is the list of packages.
 	Packages = []string{
 		"tuntap",
+		"fscp",
 	}
 
 	// Default is the default target.
