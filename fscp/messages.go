@@ -75,8 +75,8 @@ func writeMessage(b *bytes.Buffer, t MessageType, msg serializable) {
 	msg.serialize(b)
 }
 
-func writeDataMessage(b *bytes.Buffer, channel uint8, msg *messageData) {
-	writeMessage(b, MessageTypeData+MessageType(channel), msg)
+func writeDataMessage(b *bytes.Buffer, msg *messageData) {
+	writeMessage(b, MessageTypeData+MessageType(msg.Channel), msg)
 }
 
 func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {

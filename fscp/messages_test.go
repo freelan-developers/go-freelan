@@ -144,7 +144,7 @@ func TestSerialization(t *testing.T) {
 			buf := &bytes.Buffer{}
 
 			if msg, _ := testCase.Message.(*messageData); msg != nil {
-				writeDataMessage(buf, msg.Channel, msg)
+				writeDataMessage(buf, msg)
 			} else {
 				writeMessage(buf, testCase.MessageType, testCase.Message)
 			}
