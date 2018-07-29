@@ -41,26 +41,41 @@ func TestSerialization(t *testing.T) {
 				UniqueNumber: 0x12345678,
 			},
 			MessageType: MessageTypeHelloRequest,
-			Expected:    []byte{0x03, 0x00, 0x00, 0x04, 0x12, 0x34, 0x56, 0x78},
+			Expected: []byte{
+				0x03, 0x00, 0x00, 0x04,
+				0x12, 0x34, 0x56, 0x78,
+			},
 		},
 		{
 			Message: &messageHello{
 				UniqueNumber: 0x12345678,
 			},
 			MessageType: MessageTypeHelloResponse,
-			Expected:    []byte{0x03, 0x01, 0x00, 0x04, 0x12, 0x34, 0x56, 0x78},
+			Expected: []byte{
+				0x03, 0x01, 0x00, 0x04,
+				0x12, 0x34, 0x56, 0x78,
+			},
 		},
 		{
 			Message:     &messagePresentation{},
 			MessageType: MessageTypePresentation,
-			Expected:    []byte{0x03, 0x02, 0x00, 0x02, 0x00, 0x00},
+			Expected: []byte{
+				0x03, 0x02, 0x00, 0x02,
+				0x00, 0x00,
+			},
 		},
 		{
 			Message: &messagePresentation{
 				Certificate: CertificateAlice,
 			},
 			MessageType: MessageTypePresentation,
-			Expected:    append([]byte{0x03, 0x02, 0x05, 0xd6, 0x05, 0xd4}, CertificateAlice.Raw...),
+			Expected: append(
+				[]byte{
+					0x03, 0x02, 0x05, 0xd6,
+					0x05, 0xd4,
+				},
+				CertificateAlice.Raw...,
+			),
 		},
 		{
 			Message: &messageSessionRequest{
