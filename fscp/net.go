@@ -104,6 +104,17 @@ func (l *Listener) Close() error {
 type Dialer struct {
 }
 
+// DefaultDialer is the default FSCP dialer.
+var DefaultDialer = &Dialer{}
+
+// Dial dials a new connection.
+func Dial(network, addr string) (net.Conn, error) { return DefaultDialer.Dial(network, addr) }
+
+// DialFSCP dials a new FSCP connection.
+func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
+	return DefaultDialer.DialFSCP(network, laddr, raddr)
+}
+
 // Dial dials a new connection.
 func (d *Dialer) Dial(network, addr string) (net.Conn, error) {
 	switch network {
