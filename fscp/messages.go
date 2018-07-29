@@ -25,6 +25,8 @@ const (
 	MessageTypePresentation MessageType = 0x02
 	// MessageTypeSessionRequest is a SESSION REQUEST message.
 	MessageTypeSessionRequest MessageType = 0x03
+	// MessageTypeSession is a SESSION message.
+	MessageTypeSession MessageType = 0x04
 )
 
 func (m MessageType) String() string {
@@ -37,6 +39,8 @@ func (m MessageType) String() string {
 		return "PRESENTATION"
 	case MessageTypeSessionRequest:
 		return "SESSION (request)"
+	case MessageTypeSession:
+		return "SESSION"
 	default:
 		return "unknown message type"
 	}
@@ -97,6 +101,8 @@ func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error)
 		msg = &messagePresentation{}
 	case MessageTypeSessionRequest:
 		msg = &messageSessionRequest{}
+	case MessageTypeSession:
+		msg = &messageSession{}
 	default:
 		err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
 		return
@@ -276,6 +282,65 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 	for i := range m.EllipticCurves {
 		binary.Read(b, binary.BigEndian, &m.EllipticCurves[i])
 	}
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.Signature = make([]byte, size)
+	_, err = b.Read(m.Signature)
+
+	return
+}
+
+type messageSession struct {
+	SessionNumber  SessionNumber
+	HostIdentifier HostIdentifier
+	CipherSuite    CipherSuite
+	EllipticCurve  EllipticCurve
+	PublicKey      []byte
+	Signature      []byte
+}
+
+func (m *messageSession) serialize(b *bytes.Buffer) error {
+	binary.Write(b, binary.BigEndian, m.SessionNumber)
+	binary.Write(b, binary.BigEndian, m.HostIdentifier)
+	binary.Write(b, binary.BigEndian, m.CipherSuite)
+	binary.Write(b, binary.BigEndian, m.EllipticCurve)
+
+	// These two bytes are always zero.
+	b.Write([]byte{0x00, 0x00})
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.PublicKey)))
+	b.Write(m.PublicKey)
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.Signature)))
+	b.Write(m.Signature)
+
+	return nil
+}
+
+func (m *messageSession) serializationSize() int {
+	return 4 + 4 + 2 + 2 + 2 + len(m.PublicKey) + 2 + len(m.Signature)
+}
+
+func (m *messageSession) deserialize(b *bytes.Reader) (err error) {
+	if b.Len() < 16 {
+		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 16, b.Len())
+	}
+
+	binary.Read(b, binary.BigEndian, &m.SessionNumber)
+	binary.Read(b, binary.BigEndian, &m.HostIdentifier)
+	binary.Read(b, binary.BigEndian, &m.CipherSuite)
+	binary.Read(b, binary.BigEndian, &m.EllipticCurve)
+
+	// Discard two bytes.
+	b.Read([]byte{0x00, 0x00})
+
+	var size uint16
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.PublicKey = make([]byte, size)
+	_, err = b.Read(m.PublicKey)
 
 	binary.Read(b, binary.BigEndian, &size)
 
