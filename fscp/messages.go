@@ -27,6 +27,14 @@ const (
 	MessageTypeSessionRequest MessageType = 0x03
 	// MessageTypeSession is a SESSION message.
 	MessageTypeSession MessageType = 0x04
+	// MessageTypeData is a DATA message.
+	MessageTypeData = 0x70
+	// MessageTypeContactRequest is a CONTACT REQUEST message.
+	MessageTypeContactRequest = 0xfd
+	// MessageTypeContact is a CONTACT message.
+	MessageTypeContact = 0xfe
+	// MessageTypeKeepAlive is a KEEP-ALIVE message.
+	MessageTypeKeepAlive = 0xff
 )
 
 func (m MessageType) String() string {
@@ -41,6 +49,14 @@ func (m MessageType) String() string {
 		return "SESSION (request)"
 	case MessageTypeSession:
 		return "SESSION"
+	case MessageTypeData:
+		return "DATA"
+	case MessageTypeContactRequest:
+		return "CONTACT (request)"
+	case MessageTypeContact:
+		return "CONTACT"
+	case MessageTypeKeepAlive:
+		return "KEEP-ALIVE"
 	default:
 		return "unknown message type"
 	}
@@ -57,6 +73,10 @@ func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) {
 func writeMessage(b *bytes.Buffer, t MessageType, msg serializable) {
 	writeHeader(b, t, msg.serializationSize())
 	msg.serialize(b)
+}
+
+func writeDataMessage(b *bytes.Buffer, channel uint8, msg *messageData) {
+	writeMessage(b, MessageTypeData+MessageType(channel), msg)
 }
 
 func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
@@ -94,18 +114,28 @@ func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error)
 		return
 	}
 
-	switch t {
-	case MessageTypeHelloRequest, MessageTypeHelloResponse:
-		msg = &messageHello{}
-	case MessageTypePresentation:
-		msg = &messagePresentation{}
-	case MessageTypeSessionRequest:
-		msg = &messageSessionRequest{}
-	case MessageTypeSession:
-		msg = &messageSession{}
-	default:
-		err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
-		return
+	if t&MessageTypeData == MessageTypeData {
+		msg = &messageData{
+			Channel: uint8(t - MessageTypeData),
+		}
+	} else {
+		switch t {
+		case MessageTypeHelloRequest, MessageTypeHelloResponse:
+			msg = &messageHello{}
+		case MessageTypePresentation:
+			msg = &messagePresentation{}
+		case MessageTypeSessionRequest:
+			msg = &messageSessionRequest{}
+		case MessageTypeSession:
+			msg = &messageSession{}
+		case MessageTypeContactRequest, MessageTypeContact, MessageTypeKeepAlive:
+			msg = &messageData{
+				Channel: 0,
+			}
+		default:
+			err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
+			return
+		}
 	}
 
 	err = msg.deserialize(b)
@@ -346,6 +376,48 @@ func (m *messageSession) deserialize(b *bytes.Reader) (err error) {
 
 	m.Signature = make([]byte, size)
 	_, err = b.Read(m.Signature)
+
+	return
+}
+
+// A SequenceNumber is a 4 bytes sequence number.
+type SequenceNumber uint32
+
+type messageData struct {
+	Channel        uint8
+	SequenceNumber SequenceNumber
+	GCMTag         [16]byte
+	Ciphertext     []byte
+}
+
+func (m *messageData) serialize(b *bytes.Buffer) error {
+	binary.Write(b, binary.BigEndian, m.SequenceNumber)
+	b.Write(m.GCMTag[:])
+
+	binary.Write(b, binary.BigEndian, uint16(len(m.Ciphertext)))
+	b.Write(m.Ciphertext)
+
+	return nil
+}
+
+func (m *messageData) serializationSize() int {
+	return 4 + 16 + 2 + len(m.Ciphertext)
+}
+
+func (m *messageData) deserialize(b *bytes.Reader) (err error) {
+	if b.Len() < 22 {
+		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 22, b.Len())
+	}
+
+	binary.Read(b, binary.BigEndian, &m.SequenceNumber)
+	_, err = b.Read(m.GCMTag[:])
+
+	var size uint16
+
+	binary.Read(b, binary.BigEndian, &size)
+
+	m.Ciphertext = make([]byte, size)
+	_, err = b.Read(m.Ciphertext)
 
 	return
 }

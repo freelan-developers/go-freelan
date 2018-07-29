@@ -118,12 +118,36 @@ func TestSerialization(t *testing.T) {
 				0x00, 0x02, 0xaa, 0xbb,
 			},
 		},
+		{
+			Message: &messageData{
+				Channel:        0x02,
+				SequenceNumber: 0x22446688,
+				GCMTag: [16]byte{
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				},
+				Ciphertext: []byte{0xaa, 0xbb},
+			},
+			MessageType: MessageTypeData,
+			Expected: []byte{
+				0x03, 0x72, 0x00, 0x18,
+				0x22, 0x44, 0x66, 0x88,
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x00, 0x02, 0xaa, 0xbb,
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(fmt.Sprintf("%s", testCase.MessageType), func(t *testing.T) {
 			buf := &bytes.Buffer{}
-			writeMessage(buf, testCase.MessageType, testCase.Message)
+
+			if msg, _ := testCase.Message.(*messageData); msg != nil {
+				writeDataMessage(buf, msg.Channel, msg)
+			} else {
+				writeMessage(buf, testCase.MessageType, testCase.Message)
+			}
 
 			if bytes.Compare(buf.Bytes(), testCase.Expected) != 0 {
 				t.Errorf("\n- %v\n+ %v", hex.EncodeToString(testCase.Expected), hex.EncodeToString(buf.Bytes()))
@@ -136,8 +160,16 @@ func TestSerialization(t *testing.T) {
 				t.Fatalf("expected no error but got: %s", err)
 			}
 
-			if mt != testCase.MessageType {
-				t.Errorf("expected: `%v`, got: `%v`", testCase.MessageType, mt)
+			if msg, _ := testCase.Message.(*messageData); msg != nil {
+				emt := testCase.MessageType + MessageType(msg.Channel)
+
+				if mt != emt {
+					t.Errorf("expected: `%v`, got: `%v`", emt, mt)
+				}
+			} else {
+				if mt != testCase.MessageType {
+					t.Errorf("expected: `%v`, got: `%v`", testCase.MessageType, mt)
+				}
 			}
 
 			if !reflect.DeepEqual(msg, testCase.Message) {
