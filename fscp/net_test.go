@@ -3,16 +3,24 @@ package fscp
 import "testing"
 
 func TestConnection(t *testing.T) {
-	serverListener, err := Listen(Network, ":5000")
+	server, err := Listen(Network, ":5000")
 
 	if err != nil {
 		t.Fatalf("expected no error: %s", err)
 	}
 
-	defer serverListener.Close()
+	defer server.Close()
+
+	client, err := Listen(Network, ":5001")
+
+	if err != nil {
+		t.Fatalf("expected no error: %s", err)
+	}
+
+	defer client.Close()
 
 	go func() {
-		clientConn, err := Dial(Network, "localhost:5000")
+		clientConn, err := client.(*Client).Connect(server.Addr().(*Addr))
 
 		if err != nil {
 			t.Fatalf("expected no error: %s", err)
@@ -49,7 +57,7 @@ func TestConnection(t *testing.T) {
 		}
 	}()
 
-	serverConn, err := serverListener.Accept()
+	serverConn, err := server.Accept()
 
 	if err != nil {
 		t.Fatalf("expected no error: %s", err)

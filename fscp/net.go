@@ -5,8 +5,19 @@ import (
 	"net"
 )
 
-// Network is the default network.
-const Network = "fscp"
+const (
+	// Network is the default network.
+	Network = "fscp"
+)
+
+var (
+	// DefaultAddr is the default listening address.
+	DefaultAddr = &Addr{
+		TransportAddr: &net.UDPAddr{
+			Port: 5000,
+		},
+	}
+)
 
 // Addr is a FSCP address.
 type Addr struct {
@@ -64,9 +75,7 @@ func ListenFSCP(network string, addr *Addr) (*Client, error) {
 				return nil, err
 			}
 
-			return &Client{
-				TransportConn: conn,
-			}, nil
+			return NewClient(conn)
 		default:
 			return nil, &net.OpError{Op: "listen", Net: network, Addr: addr, Err: fmt.Errorf("unsupported transport address for FSCP: %#v", addr)}
 		}
@@ -75,13 +84,38 @@ func ListenFSCP(network string, addr *Addr) (*Client, error) {
 	}
 }
 
-// DefaultClient is the default FSCP client.
-var DefaultClient = &Client{}
-
 // Dial dials a new connection.
-func Dial(network, addr string) (net.Conn, error) { return DefaultClient.Dial(network, addr) }
+func Dial(network, addr string) (net.Conn, error) {
+	switch network {
+	case Network:
+		addr, err := ResolveFSCPAddr(network, addr)
+
+		if err != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Err: err}
+		}
+
+		return DialFSCP(network, nil, addr)
+	default:
+		return net.Dial(network, addr)
+	}
+}
 
 // DialFSCP dials a new FSCP connection.
 func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
-	return DefaultClient.DialFSCP(network, laddr, raddr)
+	switch network {
+	case Network:
+		if laddr == nil {
+			laddr = DefaultAddr
+		}
+
+		client, err := ListenFSCP(network, laddr)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return client.Connect(raddr)
+	default:
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: fmt.Errorf("unsupported network: %s", network)}
+	}
 }
