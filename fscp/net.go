@@ -3,7 +3,6 @@ package fscp
 import (
 	"fmt"
 	"net"
-	"time"
 )
 
 // Network is the default network.
@@ -37,11 +36,6 @@ func ResolveFSCPAddr(network, address string) (*Addr, error) {
 	}
 }
 
-// Listener represents a FSCP listener.
-type Listener struct {
-	TransportConn net.PacketConn
-}
-
 // Listen listens to a FSCP address.
 func Listen(network string, addr string) (net.Listener, error) {
 	switch network {
@@ -59,7 +53,7 @@ func Listen(network string, addr string) (net.Listener, error) {
 }
 
 // ListenFSCP listens to a FSCP address.
-func ListenFSCP(network string, addr *Addr) (*Listener, error) {
+func ListenFSCP(network string, addr *Addr) (*Client, error) {
 	switch network {
 	case Network:
 		switch taddr := addr.TransportAddr.(type) {
@@ -70,7 +64,7 @@ func ListenFSCP(network string, addr *Addr) (*Listener, error) {
 				return nil, err
 			}
 
-			return &Listener{
+			return &Client{
 				TransportConn: conn,
 			}, nil
 		default:
@@ -81,130 +75,13 @@ func ListenFSCP(network string, addr *Addr) (*Listener, error) {
 	}
 }
 
-// Addr returns the listener address.
-func (l *Listener) Addr() net.Addr {
-	return &Addr{TransportAddr: l.TransportConn.LocalAddr()}
-}
-
-// Accept a new connection.
-func (l *Listener) Accept() (net.Conn, error) {
-	// TODO: Create an ingoing connection.
-	return nil, nil
-}
-
-// Close the listener.
-func (l *Listener) Close() error {
-	// TODO: Close the listener.
-	return nil
-}
-
-// Dialer is a FSCP dialer.
-//
-// A dialer will try to multiplex connections as much as possible.
-type Dialer struct {
-}
-
-// DefaultDialer is the default FSCP dialer.
-var DefaultDialer = &Dialer{}
+// DefaultClient is the default FSCP client.
+var DefaultClient = &Client{}
 
 // Dial dials a new connection.
-func Dial(network, addr string) (net.Conn, error) { return DefaultDialer.Dial(network, addr) }
+func Dial(network, addr string) (net.Conn, error) { return DefaultClient.Dial(network, addr) }
 
 // DialFSCP dials a new FSCP connection.
 func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
-	return DefaultDialer.DialFSCP(network, laddr, raddr)
-}
-
-// Dial dials a new connection.
-func (d *Dialer) Dial(network, addr string) (net.Conn, error) {
-	switch network {
-	case Network:
-		addr, err := ResolveFSCPAddr(network, addr)
-
-		if err != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Err: err}
-		}
-
-		return d.DialFSCP(network, nil, addr)
-	default:
-		return net.Dial(network, addr)
-	}
-}
-
-// DialFSCP dials a new FSCP connection.
-func (d *Dialer) DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
-	switch network {
-	case Network:
-		switch rtaddr := raddr.TransportAddr.(type) {
-		case *net.UDPAddr:
-			ltaddr, ok := laddr.TransportAddr.(*net.UDPAddr)
-
-			if !ok {
-				return nil, &net.OpError{Op: "dial", Net: network, Addr: ltaddr, Err: fmt.Errorf("unsupported transport address for FSCP: %#v", ltaddr)}
-			}
-
-			conn, err := net.DialUDP("udp", ltaddr, rtaddr)
-
-			if err != nil {
-				return nil, err
-			}
-
-			return &Conn{
-				transportConn: conn,
-				remoteAddr:    raddr,
-			}, nil
-		default:
-			return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: fmt.Errorf("unsupported transport address for FSCP: %#v", raddr)}
-		}
-	default:
-		return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: fmt.Errorf("unsupported network: %s", network)}
-	}
-}
-
-// Conn is a FSCP connection.
-type Conn struct {
-	transportConn net.PacketConn
-	remoteAddr    *Addr
-}
-
-func (c *Conn) Read(b []byte) (n int, err error) {
-	// TODO: Implement.
-	return 0, nil
-}
-
-func (c *Conn) Write(b []byte) (n int, err error) {
-	// TODO: Implement.
-	return 0, nil
-}
-
-// Close the connection.
-func (c *Conn) Close() error {
-	// TODO: Implement.
-	return nil
-}
-
-// LocalAddr returns the local address of the connection.
-func (c *Conn) LocalAddr() net.Addr {
-	return &Addr{TransportAddr: c.transportConn.LocalAddr()}
-}
-
-// RemoteAddr returns the remote address of the connection.
-func (c *Conn) RemoteAddr() net.Addr { return c.remoteAddr }
-
-// SetDeadline sets the deadline on the connection.
-func (c *Conn) SetDeadline(t time.Time) error {
-	// TODO: Implement.
-	return c.transportConn.SetDeadline(t)
-}
-
-// SetReadDeadline sets the deadline on the connection.
-func (c *Conn) SetReadDeadline(t time.Time) error {
-	// TODO: Implement.
-	return c.transportConn.SetReadDeadline(t)
-}
-
-// SetWriteDeadline sets the deadline on the connection.
-func (c *Conn) SetWriteDeadline(t time.Time) error {
-	// TODO: Implement.
-	return c.transportConn.SetWriteDeadline(t)
+	return DefaultClient.DialFSCP(network, laddr, raddr)
 }
