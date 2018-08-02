@@ -1,6 +1,8 @@
 package fscp
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestConnection(t *testing.T) {
 	server, err := Listen(Network, ":5000")
@@ -20,7 +22,13 @@ func TestConnection(t *testing.T) {
 	defer client.Close()
 
 	go func() {
-		clientConn, err := client.(*Client).Connect(server.Addr().(*Addr))
+		addr, err := ResolveFSCPAddr(Network, "localhost:5000")
+
+		if err != nil {
+			t.Fatalf("expected no error: %s", err)
+		}
+
+		clientConn, err := client.(*Client).Connect(addr)
 
 		if err != nil {
 			t.Fatalf("expected no error: %s", err)

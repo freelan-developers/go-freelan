@@ -12,6 +12,7 @@ type Client struct {
 	backlog       chan *Conn
 	connsByAddr   map[string]*Conn
 	lock          sync.Mutex
+	once          sync.Once
 }
 
 // NewClient creates a new client.
@@ -42,27 +43,48 @@ func (c *Client) Accept() (net.Conn, error) {
 }
 
 // Close the listener.
-func (c *Client) Close() error {
-	// TODO: Close the listener.
-	return nil
+func (c *Client) Close() (err error) {
+	c.once.Do(func() {
+		c.lock.Lock()
+
+		for _, conn := range c.connsByAddr {
+			conn.Close()
+		}
+		c.connsByAddr = nil
+
+		c.lock.Unlock()
+
+		close(c.backlog)
+		err = c.transportConn.Close()
+	})
+
+	return
 }
 
 // Connect connects to the specified host.
 func (c *Client) Connect(addr *Addr) (*Conn, error) {
 	conn := c.getConn(addr)
 
-	// TODO: Wait until the connection is initiated or failed and return the result.
-	return conn, nil
+	if conn == nil {
+		return nil, io.EOF
+	}
+
+	return conn, conn.waitSync()
 }
 
 // getConn returns the connection associated with the specified remote address.
 //
 // If no such connection exists, a new one is started.
 func (c *Client) getConn(remoteAddr *Addr) *Conn {
+	key := remoteAddr.String()
+
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	key := remoteAddr.String()
+	if c.connsByAddr == nil {
+		return nil
+	}
+
 	conn, ok := c.connsByAddr[key]
 
 	if !ok {
@@ -87,12 +109,21 @@ func (c *Client) acceptLoop() {
 		b := b[:n]
 		conn := c.getConn(&Addr{TransportAddr: addr})
 
+		if conn == nil {
+			// The client has been closed.
+			return
+		}
+
 		select {
 		case conn.incoming <- b:
 		default:
 			// If the connection's incoming queue is full, we simply discard the frame.
 		}
-
-		c.lock.Unlock()
 	}
+}
+
+func (c *Client) writeTo(b []byte, addr *Addr) (err error) {
+	_, err = c.transportConn.WriteTo(b, addr.TransportAddr)
+
+	return
 }
