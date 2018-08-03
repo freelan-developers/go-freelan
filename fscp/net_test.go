@@ -1,25 +1,36 @@
 package fscp
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestConnection(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	defer cancel()
+
 	server, err := Listen(Network, ":5000")
 
 	if err != nil {
 		t.Fatalf("expected no error: %s", err)
 	}
 
-	defer server.Close()
-
 	client, err := Listen(Network, ":5001")
 
 	if err != nil {
+		server.Close()
 		t.Fatalf("expected no error: %s", err)
 	}
 
-	defer client.Close()
+	// Close both clients when the context expires or gets cancelled, whichever
+	// happens first.
+	go func() {
+		<-ctx.Done()
+
+		server.Close()
+		client.Close()
+	}()
 
 	go func() {
 		addr, err := ResolveFSCPAddr(Network, "localhost:5000")
@@ -28,10 +39,10 @@ func TestConnection(t *testing.T) {
 			t.Fatalf("expected no error: %s", err)
 		}
 
-		clientConn, err := client.(*Client).Connect(addr)
+		clientConn, err := client.(*Client).Connect(ctx, addr)
 
 		if err != nil {
-			t.Fatalf("expected no error: %s", err)
+			t.Fatalf("client connecting to %s: %s", addr, err)
 		}
 
 		defer clientConn.Close()
@@ -41,7 +52,7 @@ func TestConnection(t *testing.T) {
 		n, err := clientConn.Read(msg)
 
 		if err != nil {
-			t.Fatalf("expected no error: %s", err)
+			t.Fatalf("client reading from connection: %s", err)
 		}
 
 		if n != 5 {
@@ -57,7 +68,7 @@ func TestConnection(t *testing.T) {
 		n, err = clientConn.Write([]byte("world"))
 
 		if err != nil {
-			t.Fatalf("expected no error: %s", err)
+			t.Fatalf("client writing to connection: %s", err)
 		}
 
 		if n != 5 {
@@ -68,7 +79,7 @@ func TestConnection(t *testing.T) {
 	serverConn, err := server.Accept()
 
 	if err != nil {
-		t.Fatalf("expected no error: %s", err)
+		t.Fatalf("server accepting a connection: %s", err)
 	}
 
 	defer serverConn.Close()

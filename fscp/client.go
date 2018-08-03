@@ -1,6 +1,7 @@
 package fscp
 
 import (
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -10,9 +11,15 @@ import (
 type Client struct {
 	transportConn net.PacketConn
 	backlog       chan *Conn
-	connsByAddr   map[string]*Conn
-	lock          sync.Mutex
-	once          sync.Once
+	closed        bool
+
+	lock        sync.Mutex
+	connsByAddr map[string]*Conn
+}
+
+type frame struct {
+	data []byte
+	addr *Addr
 }
 
 // NewClient creates a new client.
@@ -20,10 +27,14 @@ func NewClient(conn net.PacketConn) (*Client, error) {
 	client := &Client{
 		transportConn: conn,
 		backlog:       make(chan *Conn, 20),
+		closed:        false,
 		connsByAddr:   map[string]*Conn{},
 	}
 
-	go client.acceptLoop()
+	incoming := make(chan *frame, 100)
+
+	go client.readLoop(incoming)
+	go client.dispatchLoop(incoming)
 
 	return client, nil
 }
@@ -43,83 +54,154 @@ func (c *Client) Accept() (net.Conn, error) {
 }
 
 // Close the listener.
-func (c *Client) Close() (err error) {
-	c.once.Do(func() {
-		c.lock.Lock()
-
-		for _, conn := range c.connsByAddr {
-			conn.Close()
-		}
-		c.connsByAddr = nil
-
-		c.lock.Unlock()
-
-		close(c.backlog)
-		err = c.transportConn.Close()
-	})
-
-	return
+func (c *Client) Close() error {
+	return c.transportConn.Close()
 }
 
 // Connect connects to the specified host.
-func (c *Client) Connect(addr *Addr) (*Conn, error) {
-	conn := c.getConn(addr)
+func (c *Client) Connect(ctx context.Context, remoteAddr *Addr) (conn *Conn, err error) {
+	var ok bool
+
+	conn, ok = c.addConn(remoteAddr)
 
 	if conn == nil {
 		return nil, io.EOF
 	}
 
-	return conn, conn.waitSync()
-}
+	if ok {
+		// A new connection was added: let's wait for it to be connected or the
+		// context to expire, whichever happens first.
 
-// getConn returns the connection associated with the specified remote address.
-//
-// If no such connection exists, a new one is started.
-func (c *Client) getConn(remoteAddr *Addr) *Conn {
-	key := remoteAddr.String()
-
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	if c.connsByAddr == nil {
-		return nil
+		select {
+		case <-conn.closed:
+			return nil, io.EOF
+		case <-conn.connected:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
-	conn, ok := c.connsByAddr[key]
-
-	if !ok {
-		conn = newConn(c, remoteAddr)
-		c.connsByAddr[key] = conn
-	}
-
-	return conn
+	return
 }
 
-func (c *Client) acceptLoop() {
+func (c *Client) readLoop(incoming chan<- *frame) {
+	// The close of this channel will in turn end the dispatch loop.
+	defer close(incoming)
+
 	b := make([]byte, 1500)
 
 	for {
 		n, addr, err := c.transportConn.ReadFrom(b)
 
 		if err != nil {
-			c.Close()
 			return
 		}
 
-		b := b[:n]
-		conn := c.getConn(&Addr{TransportAddr: addr})
+		incoming <- &frame{
+			data: b[:n],
+			addr: &Addr{TransportAddr: addr},
+		}
+	}
+}
 
+func (c *Client) dispatchLoop(incoming <-chan *frame) {
+	defer c.closeConns()
+	defer close(c.backlog)
+
+	for frame := range incoming {
+		conn, ok := c.addConn(frame.addr)
+
+		// A nil conn indicates that the client is closing, which means we will
+		// soon exit from the incoming loop anyway.
 		if conn == nil {
-			// The client has been closed.
-			return
+			continue
+		}
+
+		if ok {
+			go func(conn *Conn) {
+				select {
+				case <-conn.connected:
+				case <-conn.closed:
+					// If we get there, it means the connection was closed
+					// before it completed its handshake.
+					return
+				}
+
+				select {
+				case <-conn.closed:
+					// If we get there, it means the connection was closed
+					// right after it completed its handshake. This is rare,
+					// but if it happens we might as well not add the
+					// connection to the backlog.
+				case c.backlog <- conn:
+					// We added the connection to the backlog and can happily
+					// move on.
+				default:
+					// If the backlog is full, we shut down the connection.
+					conn.Close()
+				}
+			}(conn)
 		}
 
 		select {
-		case conn.incoming <- b:
+		case conn.incoming <- frame.data:
 		default:
 			// If the connection's incoming queue is full, we simply discard the frame.
 		}
 	}
+}
+
+func (c *Client) closeConns() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	// After that point (and the lock is released), addConn() can't add new
+	// connections which means Connect() can't either.
+	c.closed = true
+
+	// Close all the remaining connections.
+	for _, conn := range c.connsByAddr {
+		conn.Close()
+	}
+}
+
+func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
+	key := remoteAddr.String()
+
+	c.lock.Lock()
+
+	conn, ok = c.connsByAddr[key]
+
+	if !ok {
+		if c.closed {
+			return nil, false
+		}
+
+		// This is a new peer so we start a new connection.
+		conn = newConn(c, remoteAddr)
+
+		c.connsByAddr[key] = conn
+
+		// Whatever happens, when the connection is closed, we unregister it.
+		go func() {
+			<-conn.closed
+			c.removeConn(conn)
+		}()
+	}
+
+	c.lock.Unlock()
+
+	ok = !ok
+
+	return
+}
+
+func (c *Client) removeConn(conn *Conn) {
+	key := conn.RemoteAddr().String()
+
+	c.lock.Lock()
+	delete(c.connsByAddr, key)
+	c.lock.Unlock()
 }
 
 func (c *Client) writeTo(b []byte, addr *Addr) (err error) {

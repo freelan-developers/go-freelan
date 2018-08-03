@@ -63,20 +63,34 @@ func (m MessageType) String() string {
 }
 
 // Write a message header to the specified writer.
-func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) {
+func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) (err error) {
 	b.Grow(4 + payloadSize)
-	binary.Write(b, binary.BigEndian, uint8(3))
-	binary.Write(b, binary.BigEndian, t)
-	binary.Write(b, binary.BigEndian, uint16(payloadSize))
+
+	if err = binary.Write(b, binary.BigEndian, uint8(3)); err != nil {
+		return err
+	}
+
+	if err = binary.Write(b, binary.BigEndian, t); err != nil {
+		return err
+	}
+
+	if err = binary.Write(b, binary.BigEndian, uint16(payloadSize)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func writeMessage(b *bytes.Buffer, t MessageType, msg serializable) {
-	writeHeader(b, t, msg.serializationSize())
-	msg.serialize(b)
+func writeMessage(b *bytes.Buffer, t MessageType, msg serializable) (err error) {
+	if err = writeHeader(b, t, msg.serializationSize()); err != nil {
+		return err
+	}
+
+	return msg.serialize(b)
 }
 
-func writeDataMessage(b *bytes.Buffer, msg *messageData) {
-	writeMessage(b, MessageTypeData+MessageType(msg.Channel), msg)
+func writeDataMessage(b *bytes.Buffer, msg *messageData) error {
+	return writeMessage(b, MessageTypeData+MessageType(msg.Channel), msg)
 }
 
 func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {

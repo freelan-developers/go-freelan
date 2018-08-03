@@ -1,8 +1,10 @@
 package fscp
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"time"
 )
 
 const (
@@ -84,8 +86,27 @@ func ListenFSCP(network string, addr *Addr) (*Client, error) {
 	}
 }
 
+// A Dialer offers connection dialing primitives.
+type Dialer struct {
+	Timeout time.Duration
+}
+
+// DefaultTimeout is the default time to wait for dialing connections.
+const DefaultTimeout = time.Second * 5
+
+// DefaultDialer is the default dialer backing the free-form dialing functions.
+var DefaultDialer = &Dialer{}
+
+func (d Dialer) getTimeout() time.Duration {
+	if d.Timeout < 0 {
+		return DefaultTimeout
+	}
+
+	return d.Timeout
+}
+
 // Dial dials a new connection.
-func Dial(network, addr string) (net.Conn, error) {
+func (d *Dialer) Dial(network, addr string) (net.Conn, error) {
 	switch network {
 	case Network:
 		addr, err := ResolveFSCPAddr(network, addr)
@@ -94,14 +115,14 @@ func Dial(network, addr string) (net.Conn, error) {
 			return nil, &net.OpError{Op: "dial", Net: network, Err: err}
 		}
 
-		return DialFSCP(network, nil, addr)
+		return d.DialFSCP(network, nil, addr)
 	default:
 		return net.Dial(network, addr)
 	}
 }
 
 // DialFSCP dials a new FSCP connection.
-func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
+func (d *Dialer) DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
 	switch network {
 	case Network:
 		if laddr == nil {
@@ -114,8 +135,21 @@ func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
 			return nil, err
 		}
 
-		return client.Connect(raddr)
+		ctx, cancel := context.WithTimeout(context.Background(), d.getTimeout())
+		defer cancel()
+
+		return client.Connect(ctx, raddr)
 	default:
 		return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: fmt.Errorf("unsupported network: %s", network)}
 	}
+}
+
+// Dial dials a new FSCP connection using the default Dialer.
+func Dial(network, addr string) (net.Conn, error) {
+	return DefaultDialer.Dial(network, addr)
+}
+
+// DialFSCP dials a new FSCP connection.
+func DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, error) {
+	return DefaultDialer.DialFSCP(network, laddr, raddr)
 }

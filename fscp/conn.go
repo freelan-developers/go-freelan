@@ -15,7 +15,7 @@ type Conn struct {
 	client     *Client
 	remoteAddr *Addr
 	incoming   chan []byte
-	synced     chan struct{}
+	connected  chan struct{}
 	closed     chan struct{}
 	closeError error
 	once       sync.Once
@@ -26,10 +26,11 @@ func newConn(client *Client, remoteAddr *Addr) *Conn {
 		client:     client,
 		remoteAddr: remoteAddr,
 		incoming:   make(chan []byte, 10),
-		synced:     make(chan struct{}),
+		connected:  make(chan struct{}),
 		closed:     make(chan struct{}),
 	}
 
+	go conn.incomingLoop()
 	go conn.handshake()
 
 	return conn
@@ -87,7 +88,10 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *Conn) writeMessage(buf *bytes.Buffer, messageType MessageType, message serializable) (err error) {
-	writeMessage(buf, messageType, message)
+	if err = writeMessage(buf, messageType, message); err != nil {
+		return err
+	}
+
 	err = c.client.writeTo(buf.Bytes(), c.remoteAddr)
 	buf.Reset()
 
@@ -106,6 +110,7 @@ func (c *Conn) handshake() {
 		c.closeWithError(err)
 		return
 	}
+	fmt.Println("handshake waiting")
 
 	// TODO: Wait for the reply.
 }
@@ -114,14 +119,5 @@ func (c *Conn) incomingLoop() {
 	for b := range c.incoming {
 		// TODO: Do something.
 		fmt.Println(b)
-	}
-}
-
-func (c *Conn) waitSync() error {
-	select {
-	case <-c.synced:
-		return nil
-	case <-c.closed:
-		return c.closeError
 	}
 }
