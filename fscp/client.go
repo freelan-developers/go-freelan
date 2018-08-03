@@ -152,6 +152,7 @@ func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
 	key := remoteAddr.String()
 
 	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	conn, ok = c.connsByAddr[key]
 
@@ -171,8 +172,6 @@ func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
 			c.removeConn(conn)
 		}()
 	}
-
-	c.lock.Unlock()
 
 	ok = !ok
 
