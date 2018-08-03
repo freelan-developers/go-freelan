@@ -17,11 +17,6 @@ type Client struct {
 	connsByAddr map[string]*Conn
 }
 
-type frame struct {
-	data []byte
-	addr *Addr
-}
-
 // NewClient creates a new client.
 func NewClient(conn net.PacketConn) (*Client, error) {
 	client := &Client{
@@ -31,10 +26,7 @@ func NewClient(conn net.PacketConn) (*Client, error) {
 		connsByAddr:   map[string]*Conn{},
 	}
 
-	incoming := make(chan *frame, 100)
-
-	go client.readLoop(incoming)
-	go client.dispatchLoop(incoming)
+	go client.dispatchLoop()
 
 	return client, nil
 }
@@ -84,9 +76,9 @@ func (c *Client) Connect(ctx context.Context, remoteAddr *Addr) (conn *Conn, err
 	return
 }
 
-func (c *Client) readLoop(incoming chan<- *frame) {
-	// The close of this channel will in turn end the dispatch loop.
-	defer close(incoming)
+func (c *Client) dispatchLoop() {
+	defer c.closeConns()
+	defer close(c.backlog)
 
 	b := make([]byte, 1500)
 
@@ -97,19 +89,9 @@ func (c *Client) readLoop(incoming chan<- *frame) {
 			return
 		}
 
-		incoming <- &frame{
-			data: b[:n],
-			addr: &Addr{TransportAddr: addr},
-		}
-	}
-}
-
-func (c *Client) dispatchLoop(incoming <-chan *frame) {
-	defer c.closeConns()
-	defer close(c.backlog)
-
-	for frame := range incoming {
-		conn, ok := c.addConn(frame.addr)
+		data := b[:n]
+		remoteAddr := &Addr{TransportAddr: addr}
+		conn, ok := c.addConn(remoteAddr)
 
 		// A nil conn indicates that the client is closing, which means we will
 		// soon exit from the incoming loop anyway.
@@ -144,9 +126,10 @@ func (c *Client) dispatchLoop(incoming <-chan *frame) {
 		}
 
 		select {
-		case conn.incoming <- frame.data:
+		case conn.incoming <- data:
 		default:
-			// If the connection's incoming queue is full, we simply discard the frame.
+			// If the connection's incoming queue is full, we simply discard
+			// the frame.
 		}
 	}
 }
