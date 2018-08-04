@@ -1,6 +1,7 @@
 package fscp
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -125,11 +126,13 @@ func (c *Client) dispatchLoop() {
 			}(conn)
 		}
 
-		select {
-		case conn.incoming <- data:
-		default:
-			// If the connection's incoming queue is full, we simply discard
-			// the frame.
+		if messageType, message, err := readMessage(bytes.NewReader(data)); err == nil {
+			select {
+			case conn.incoming <- messageFrame{messageType, message}:
+			default:
+				// If the connection's incoming queue is full, we simply discard
+				// the frame.
+			}
 		}
 	}
 }

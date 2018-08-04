@@ -10,11 +10,16 @@ import (
 	"time"
 )
 
+type messageFrame struct {
+	messageType MessageType
+	message     interface{}
+}
+
 // Conn is a FSCP connection.
 type Conn struct {
 	client     *Client
 	remoteAddr *Addr
-	incoming   chan []byte
+	incoming   chan messageFrame
 	connected  chan struct{}
 	closed     chan struct{}
 	closeError error
@@ -25,12 +30,11 @@ func newConn(client *Client, remoteAddr *Addr) *Conn {
 	conn := &Conn{
 		client:     client,
 		remoteAddr: remoteAddr,
-		incoming:   make(chan []byte, 10),
+		incoming:   make(chan messageFrame, 10),
 		connected:  make(chan struct{}),
 		closed:     make(chan struct{}),
 	}
 
-	go conn.incomingLoop()
 	go conn.handshake()
 
 	return conn
@@ -106,18 +110,51 @@ func (c *Conn) handshake() {
 
 	buf := &bytes.Buffer{}
 
-	if err := c.writeMessage(buf, MessageTypeHelloRequest, msgHello); err != nil {
-		c.closeWithError(err)
-		return
+	for {
+		if err := c.writeMessage(buf, MessageTypeHelloRequest, msgHello); err != nil {
+			c.closeWithError(err)
+			return
+		}
+
+		msg, err := c.waitSpecificMessage(time.Second*3, MessageTypeHelloRequest)
+
+		if err != nil {
+			c.closeWithError(err)
+			return
+		}
+
+		if msg != nil {
+			break
+		}
 	}
-	fmt.Println("handshake waiting")
+
+	fmt.Println("handshake complete")
+	close(c.connected)
 
 	// TODO: Wait for the reply.
 }
 
+func (c *Conn) waitSpecificMessage(timeout time.Duration, messageType MessageType) (interface{}, error) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case frame := <-c.incoming:
+			if frame.messageType == messageType {
+				return frame.message, nil
+			}
+		case <-timer.C:
+			return nil, nil
+		case <-c.closed:
+			return nil, io.EOF
+		}
+	}
+}
+
 func (c *Conn) incomingLoop() {
-	for b := range c.incoming {
+	for frame := range c.incoming {
 		// TODO: Do something.
-		fmt.Println(b)
+		fmt.Println(frame)
 	}
 }
