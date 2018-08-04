@@ -2,6 +2,7 @@ package fscp
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"math/rand"
@@ -17,8 +18,11 @@ type messageFrame struct {
 
 // Conn is a FSCP connection.
 type Conn struct {
-	client     *Client
+	localAddr  *Addr
 	remoteAddr *Addr
+	writer     io.Writer
+	security   ClientSecurity
+
 	incoming   chan messageFrame
 	connected  chan struct{}
 	closed     chan struct{}
@@ -26,16 +30,19 @@ type Conn struct {
 	once       sync.Once
 }
 
-func newConn(client *Client, remoteAddr *Addr) *Conn {
+func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, security ClientSecurity) *Conn {
 	conn := &Conn{
-		client:     client,
+		localAddr:  localAddr,
 		remoteAddr: remoteAddr,
-		incoming:   make(chan messageFrame, 10),
-		connected:  make(chan struct{}),
-		closed:     make(chan struct{}),
+		writer:     w,
+		security:   security,
+
+		incoming:  make(chan messageFrame, 10),
+		connected: make(chan struct{}),
+		closed:    make(chan struct{}),
 	}
 
-	go conn.handshake()
+	go conn.dispatchLoop()
 
 	return conn
 }
@@ -47,7 +54,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 
 func (c *Conn) Write(b []byte) (n int, err error) {
 	// TODO: Implement.
-	return len(b), c.client.writeTo(b, c.remoteAddr)
+	return 0, nil
 }
 
 // Close closes the connection.
@@ -66,9 +73,7 @@ func (c *Conn) closeWithError(err error) error {
 }
 
 // LocalAddr returns the local address of the connection.
-func (c *Conn) LocalAddr() net.Addr {
-	return &Addr{TransportAddr: c.client.Addr()}
-}
+func (c *Conn) LocalAddr() net.Addr { return c.localAddr }
 
 // RemoteAddr returns the remote address of the connection.
 func (c *Conn) RemoteAddr() net.Addr { return c.remoteAddr }
@@ -91,70 +96,129 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *Conn) writeMessage(buf *bytes.Buffer, messageType MessageType, message serializable) (err error) {
+func (c *Conn) writeMessage(messageType MessageType, message serializable) (err error) {
+	// FIXME: If we know for sure that no two writeMessage() calls ever happen
+	// concurrently, we can reuse the same buffer over and over (don't forget
+	// to Reset() it).
+
+	buf := &bytes.Buffer{}
+
 	if err = writeMessage(buf, messageType, message); err != nil {
 		return err
 	}
 
-	err = c.client.writeTo(buf.Bytes(), c.remoteAddr)
-	buf.Reset()
+	_, err = buf.WriteTo(c.writer)
 
 	return
 }
 
-func (c *Conn) handshake() {
-	uniqueNumber := UniqueNumber(rand.Uint32())
-	msgHello := &messageHello{
+func (c *Conn) sendHelloRequest() (msg *messageHello, err error) {
+	msg = &messageHello{
+		UniqueNumber: UniqueNumber(rand.Uint32()),
+	}
+
+	if err = c.writeMessage(MessageTypeHelloRequest, msg); err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
+func (c *Conn) sendHelloResponse(uniqueNumber UniqueNumber) error {
+	msg := &messageHello{
 		UniqueNumber: uniqueNumber,
 	}
 
-	buf := &bytes.Buffer{}
-
-	for {
-		if err := c.writeMessage(buf, MessageTypeHelloRequest, msgHello); err != nil {
-			c.closeWithError(err)
-			return
-		}
-
-		msg, err := c.waitSpecificMessage(time.Second*3, MessageTypeHelloRequest)
-
-		if err != nil {
-			c.closeWithError(err)
-			return
-		}
-
-		if msg != nil {
-			break
-		}
-	}
-
-	fmt.Println("handshake complete")
-	close(c.connected)
-
-	// TODO: Wait for the reply.
+	return c.writeMessage(MessageTypeHelloResponse, msg)
 }
 
-func (c *Conn) waitSpecificMessage(timeout time.Duration, messageType MessageType) (interface{}, error) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+func (c *Conn) sendPresentation() error {
+	msg := &messagePresentation{
+		Certificate: c.security.Certificate,
+	}
+
+	return c.writeMessage(MessageTypePresentation, msg)
+}
+
+func (c *Conn) dispatchLoop() {
+	helloRequestTimeout := time.Second * 3
+	omsgHelloRequest, err := c.sendHelloRequest()
+
+	if err != nil {
+		c.closeWithError(err)
+		return
+	}
+
+	helloRequestTimer := time.NewTimer(helloRequestTimeout)
+	defer helloRequestTimer.Stop()
+
+	presentationDone := false
+	var remoteCertificate *x509.Certificate
 
 	for {
 		select {
 		case frame := <-c.incoming:
-			if frame.messageType == messageType {
-				return frame.message, nil
+			switch imsg := frame.message.(type) {
+			case *messageHello:
+				switch frame.messageType {
+				case MessageTypeHelloRequest:
+					if err := c.sendHelloResponse(imsg.UniqueNumber); err != nil {
+						c.closeWithError(err)
+						return
+					}
+
+				case MessageTypeHelloResponse:
+					if omsgHelloRequest == nil {
+						// We have no outstanding hello request. Ignoring.
+						continue
+					}
+
+					if imsg.UniqueNumber != omsgHelloRequest.UniqueNumber {
+						// The received response does not match the outstanding
+						// hello request. Ignoring.
+						continue
+					}
+
+					if !helloRequestTimer.Stop() {
+						// The timer already fired: ignoring the reply.
+						continue
+					}
+
+					omsgHelloRequest = nil
+
+					if err = c.sendPresentation(); err != nil {
+						c.closeWithError(err)
+						return
+					}
+				}
+			case *messagePresentation:
+				switch frame.messageType {
+				case MessageTypePresentation:
+					if presentationDone {
+						if imsg.Certificate.Equal(remoteCertificate) {
+							// Previous certificate, matches.
+						}
+					} else {
+						remoteCertificate = imsg.Certificate
+						presentationDone = true
+						fmt.Println("presentation done", remoteCertificate)
+						close(c.connected)
+					}
+				}
 			}
-		case <-timer.C:
-			return nil, nil
+		case <-helloRequestTimer.C:
+			if omsgHelloRequest, err = c.sendHelloRequest(); err != nil {
+				c.closeWithError(err)
+				return
+			}
+
+			helloRequestTimer.Reset(helloRequestTimeout)
 		case <-c.closed:
-			return nil, io.EOF
+			return
 		}
 	}
-}
 
-func (c *Conn) incomingLoop() {
-	for frame := range c.incoming {
-		// TODO: Do something.
-		fmt.Println(frame)
-	}
+	//close(c.connected)
+
+	// TODO: Wait for the reply.
 }

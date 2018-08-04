@@ -3,6 +3,7 @@ package fscp
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"io"
 	"net"
 	"sync"
@@ -11,6 +12,7 @@ import (
 // Client represents a FSCP connection.
 type Client struct {
 	transportConn net.PacketConn
+	security      ClientSecurity
 	backlog       chan *Conn
 	closed        bool
 
@@ -18,10 +20,20 @@ type Client struct {
 	connsByAddr map[string]*Conn
 }
 
+// ClientSecurity contains all the security settings of a client.
+type ClientSecurity struct {
+	Certificate *x509.Certificate
+}
+
 // NewClient creates a new client.
-func NewClient(conn net.PacketConn) (*Client, error) {
+func NewClient(conn net.PacketConn, security *ClientSecurity) (*Client, error) {
+	if security == nil {
+		security = &ClientSecurity{}
+	}
+
 	client := &Client{
 		transportConn: conn,
+		security:      *security,
 		backlog:       make(chan *Conn, 20),
 		closed:        false,
 		connsByAddr:   map[string]*Conn{},
@@ -30,6 +42,25 @@ func NewClient(conn net.PacketConn) (*Client, error) {
 	go client.dispatchLoop()
 
 	return client, nil
+}
+
+// Security gets the client's security.
+func (c *Client) Security() ClientSecurity {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.security
+}
+
+// SetSecurity sets the security used by the client.
+//
+// Existing connections are shut-down.
+func (c *Client) SetSecurity(security ClientSecurity) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.security = security
+	c.closeConns()
 }
 
 // Addr returns the listener address.
@@ -78,7 +109,7 @@ func (c *Client) Connect(ctx context.Context, remoteAddr *Addr) (conn *Conn, err
 }
 
 func (c *Client) dispatchLoop() {
-	defer c.closeConns()
+	defer c.finalize()
 	defer close(c.backlog)
 
 	b := make([]byte, 1500)
@@ -137,18 +168,14 @@ func (c *Client) dispatchLoop() {
 	}
 }
 
-func (c *Client) closeConns() {
+func (c *Client) finalize() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	// After that point (and the lock is released), addConn() can't add new
 	// connections which means Connect() can't either.
 	c.closed = true
-
-	// Close all the remaining connections.
-	for _, conn := range c.connsByAddr {
-		conn.Close()
-	}
+	c.closeConns()
 }
 
 func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
@@ -165,7 +192,8 @@ func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
 		}
 
 		// This is a new peer so we start a new connection.
-		conn = newConn(c, remoteAddr)
+		writer := &clientWriter{c, remoteAddr.TransportAddr}
+		conn = newConn(&Addr{TransportAddr: c.Addr()}, remoteAddr, writer, c.security)
 
 		c.connsByAddr[key] = conn
 
@@ -189,8 +217,24 @@ func (c *Client) removeConn(conn *Conn) {
 	c.lock.Unlock()
 }
 
-func (c *Client) writeTo(b []byte, addr *Addr) (err error) {
-	_, err = c.transportConn.WriteTo(b, addr.TransportAddr)
+// closeConns closes all the connections.
+//
+// The mutex *MUST* be held before calling this method.
+func (c *Client) closeConns() {
+	// Close all the remaining connections.
+	for _, conn := range c.connsByAddr {
+		conn.Close()
+	}
 
-	return
+	// Clear the map.
+	c.connsByAddr = map[string]*Conn{}
+}
+
+type clientWriter struct {
+	client     *Client
+	remoteAddr net.Addr
+}
+
+func (w *clientWriter) Write(b []byte) (n int, err error) {
+	return w.client.transportConn.WriteTo(b, w.remoteAddr)
 }

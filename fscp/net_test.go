@@ -7,7 +7,7 @@ import (
 )
 
 func TestConnection(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	server, err := Listen(Network, ":5000")

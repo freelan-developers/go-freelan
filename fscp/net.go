@@ -59,14 +59,14 @@ func Listen(network string, addr string) (net.Listener, error) {
 			return nil, &net.OpError{Op: "listen", Net: network, Err: err}
 		}
 
-		return ListenFSCP(network, addr)
+		return ListenFSCP(network, addr, nil)
 	default:
 		return net.Listen(network, addr)
 	}
 }
 
 // ListenFSCP listens to a FSCP address.
-func ListenFSCP(network string, addr *Addr) (*Client, error) {
+func ListenFSCP(network string, addr *Addr, security *ClientSecurity) (*Client, error) {
 	switch network {
 	case Network:
 		switch taddr := addr.TransportAddr.(type) {
@@ -77,7 +77,7 @@ func ListenFSCP(network string, addr *Addr) (*Client, error) {
 				return nil, err
 			}
 
-			return NewClient(conn)
+			return NewClient(conn, security)
 		default:
 			return nil, &net.OpError{Op: "listen", Net: network, Addr: addr, Err: fmt.Errorf("unsupported transport address for FSCP: %#v", addr)}
 		}
@@ -88,7 +88,8 @@ func ListenFSCP(network string, addr *Addr) (*Client, error) {
 
 // A Dialer offers connection dialing primitives.
 type Dialer struct {
-	Timeout time.Duration
+	Timeout  time.Duration
+	Security *ClientSecurity
 }
 
 // DefaultTimeout is the default time to wait for dialing connections.
@@ -129,7 +130,7 @@ func (d *Dialer) DialFSCP(network string, laddr *Addr, raddr *Addr) (*Conn, erro
 			laddr = DefaultAddr
 		}
 
-		client, err := ListenFSCP(network, laddr)
+		client, err := ListenFSCP(network, laddr, d.Security)
 
 		if err != nil {
 			return nil, err
