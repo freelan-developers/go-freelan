@@ -2,6 +2,8 @@ github.com/Microsoft/go-winio v0.4.7 h1:vOvDiY/F1avSWlCWiKJjdYKz2jVjTK3pWPHndeG4
 github.com/Microsoft/go-winio v0.4.7/go.mod h1:VhR8bwka0BXejwEJY73c50VrPtXAaKcyvVC4A4RozmA=
 github.com/google/gopacket v1.1.14 h1:1+TEhSu8Mh154ZBVjyd1Nt2Bb7cnyOeE3GQyb1WGLqI=
 github.com/google/gopacket v1.1.14/go.mod h1:UCLx9mCmAwsVbn6qQl1WIEt2SO7Nd2fD0th1TBAsqBw=
+github.com/looplab/fsm v0.0.0-20180515091235-f980bdb68a89 h1:xQVP1ArDVHkSnlRqDo92HDHHsLA4mMSlOfo/zB2gqkM=
+github.com/looplab/fsm v0.0.0-20180515091235-f980bdb68a89/go.mod h1:m2VaOfDHxqXBBMgc26m6yUOwkFn8H2AlJDE+jd/uafI=
 github.com/magefile/mage v0.0.0-20180411170307-771ebed3d686 h1:DP0e1KyfOAz6Sr1QIBWKBp/sNmEcHx4q4Z0nNpT5UzE=
 github.com/magefile/mage v0.0.0-20180411170307-771ebed3d686/go.mod h1:IUDi13rsHje59lecXokTfGX0QIzO45uVPlXnJYsXepA=
 github.com/sparrc/go-ping v0.0.0-20160208162908-416e72114cd1 h1:bl/ykDbLxEA88fWNi1eBi+EdIPg1uvIuq4z89mwvq/M=
