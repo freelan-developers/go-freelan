@@ -3,7 +3,7 @@ package fscp
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -20,15 +20,14 @@ type Client struct {
 	connsByAddr map[string]*Conn
 }
 
-// ClientSecurity contains all the security settings of a client.
-type ClientSecurity struct {
-	Certificate *x509.Certificate
-}
-
 // NewClient creates a new client.
 func NewClient(conn net.PacketConn, security *ClientSecurity) (*Client, error) {
 	if security == nil {
 		security = &ClientSecurity{}
+	}
+
+	if err := security.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to instanciate a new client: %s", err)
 	}
 
 	client := &Client{

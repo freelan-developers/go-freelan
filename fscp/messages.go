@@ -246,34 +246,16 @@ type SessionNumber uint32
 // HostIdentifier represents a host identifier.
 type HostIdentifier uint32
 
-// CipherSuite represents a cipher suite.
-type CipherSuite uint8
-
-const (
-	// CipherSuiteECDHERSAAES128GCMSHA256 is the ECDHE-RSA-AES-128-GCM-SHA256 cipher suite.
-	CipherSuiteECDHERSAAES128GCMSHA256 = 0x01
-	// CipherSuiteECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
-	CipherSuiteECDHERSAAES256GCMSHA384 = 0x02
-)
-
-// EllipticCurve represents an elliptic curve.
-type EllipticCurve uint8
-
-const (
-	// EllipticCurveSECT571K1 is the SECT571K1 elliptic curve.
-	EllipticCurveSECT571K1 = 0x01
-	// EllipticCurveSECP384R1 is the SECP384R1 elliptic curve.
-	EllipticCurveSECP384R1 = 0x02
-	// EllipticCurveSECP521R1 is the SECP521R1 elliptic curve.
-	EllipticCurveSECP521R1 = 0x03
-)
-
 type messageSessionRequest struct {
 	SessionNumber  SessionNumber
 	HostIdentifier HostIdentifier
 	CipherSuites   []CipherSuite
 	EllipticCurves []EllipticCurve
 	Signature      []byte
+}
+
+func (m *messageSessionRequest) computeSignature() error {
+	return nil
 }
 
 func (m *messageSessionRequest) serialize(b *bytes.Buffer) error {

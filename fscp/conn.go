@@ -2,7 +2,6 @@ package fscp
 
 import (
 	"bytes"
-	"crypto/x509"
 	"fmt"
 	"io"
 	"math/rand"
@@ -18,10 +17,12 @@ type messageFrame struct {
 
 // Conn is a FSCP connection.
 type Conn struct {
-	localAddr  *Addr
-	remoteAddr *Addr
-	writer     io.Writer
-	security   ClientSecurity
+	localAddr            *Addr
+	remoteAddr           *Addr
+	writer               io.Writer
+	hostIdentifier       HostIdentifier
+	remoteHostIdentifier *HostIdentifier
+	security             ClientSecurity
 
 	incoming   chan messageFrame
 	connected  chan struct{}
@@ -32,10 +33,11 @@ type Conn struct {
 
 func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, security ClientSecurity) *Conn {
 	conn := &Conn{
-		localAddr:  localAddr,
-		remoteAddr: remoteAddr,
-		writer:     w,
-		security:   security,
+		localAddr:      localAddr,
+		remoteAddr:     remoteAddr,
+		writer:         w,
+		hostIdentifier: HostIdentifier(rand.Uint32()),
+		security:       security,
 
 		incoming:  make(chan messageFrame, 10),
 		connected: make(chan struct{}),
@@ -140,6 +142,21 @@ func (c *Conn) sendPresentation() error {
 	return c.writeMessage(MessageTypePresentation, msg)
 }
 
+func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
+	msg := &messageSessionRequest{
+		CipherSuites:   c.security.supportedCipherSuites(),
+		EllipticCurves: c.security.supportedEllipticCurves(),
+		HostIdentifier: c.hostIdentifier,
+		SessionNumber:  sessionNumber,
+	}
+
+	if err := msg.computeSignature(); err != nil {
+		return fmt.Errorf("failed to forge session request message: %s", err)
+	}
+
+	return c.writeMessage(MessageTypeSessionRequest, msg)
+}
+
 func (c *Conn) dispatchLoop() {
 	helloRequestTimeout := time.Second * 3
 	omsgHelloRequest, err := c.sendHelloRequest()
@@ -151,9 +168,6 @@ func (c *Conn) dispatchLoop() {
 
 	helloRequestTimer := time.NewTimer(helloRequestTimeout)
 	defer helloRequestTimer.Stop()
-
-	presentationDone := false
-	var remoteCertificate *x509.Certificate
 
 	for {
 		select {
@@ -190,21 +204,23 @@ func (c *Conn) dispatchLoop() {
 						c.closeWithError(err)
 						return
 					}
+
+					if c.security.RemoteCertificate != nil {
+					}
 				}
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
-					if presentationDone {
-						if imsg.Certificate.Equal(remoteCertificate) {
-							// Previous certificate, matches.
-						}
-					} else {
-						remoteCertificate = imsg.Certificate
-						presentationDone = true
-						fmt.Println("presentation done", remoteCertificate)
-						close(c.connected)
+					// If we receive a presentation message, store its
+					// certificate only if we don't have one already.
+					if imsg.Certificate != nil && c.security.RemoteCertificate == nil {
+						c.security.RemoteCertificate = imsg.Certificate
 					}
+
+					fmt.Println("HERE")
 				}
+			case *messageSessionRequest:
+			case *messageSession:
 			}
 		case <-helloRequestTimer.C:
 			if omsgHelloRequest, err = c.sendHelloRequest(); err != nil {
