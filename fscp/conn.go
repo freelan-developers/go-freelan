@@ -114,16 +114,16 @@ func (c *Conn) writeMessage(messageType MessageType, message serializable) (err 
 	return
 }
 
-func (c *Conn) sendHelloRequest() (msg *messageHello, err error) {
-	msg = &messageHello{
-		UniqueNumber: UniqueNumber(rand.Uint32()),
+func (c *Conn) sendHelloRequest(uniqueNumber UniqueNumber) (err error) {
+	msg := &messageHello{
+		UniqueNumber: uniqueNumber,
 	}
 
 	if err = c.writeMessage(MessageTypeHelloRequest, msg); err != nil {
-		return nil, err
+		return err
 	}
 
-	return msg, nil
+	return nil
 }
 
 func (c *Conn) sendHelloResponse(uniqueNumber UniqueNumber) error {
@@ -158,16 +158,20 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 }
 
 func (c *Conn) dispatchLoop() {
-	helloRequestTimeout := time.Second * 3
-	omsgHelloRequest, err := c.sendHelloRequest()
+	uniqueNumber := UniqueNumber(rand.Uint32())
 
-	if err != nil {
-		c.closeWithError(err)
-		return
+	helloRequestRetrier := &Retrier{
+		Operation: func() error {
+			return c.sendHelloRequest(uniqueNumber)
+		},
+		OnFailure: func(err error) {
+			c.closeWithError(err)
+		},
+		Period: time.Second * 3,
 	}
 
-	helloRequestTimer := time.NewTimer(helloRequestTimeout)
-	defer helloRequestTimer.Stop()
+	helloRequestRetrier.Start()
+	defer helloRequestRetrier.Stop()
 
 	for {
 		select {
@@ -182,25 +186,18 @@ func (c *Conn) dispatchLoop() {
 					}
 
 				case MessageTypeHelloResponse:
-					if omsgHelloRequest == nil {
-						// We have no outstanding hello request. Ignoring.
-						continue
-					}
-
-					if imsg.UniqueNumber != omsgHelloRequest.UniqueNumber {
+					if imsg.UniqueNumber != uniqueNumber {
 						// The received response does not match the outstanding
 						// hello request. Ignoring.
 						continue
 					}
 
-					if !helloRequestTimer.Stop() {
-						// The timer already fired: ignoring the reply.
+					if !helloRequestRetrier.Stop() {
+						// The retrier was stopped already, so we do nothing.
 						continue
 					}
 
-					omsgHelloRequest = nil
-
-					if err = c.sendPresentation(); err != nil {
+					if err := c.sendPresentation(); err != nil {
 						c.closeWithError(err)
 						return
 					}
@@ -222,13 +219,6 @@ func (c *Conn) dispatchLoop() {
 			case *messageSessionRequest:
 			case *messageSession:
 			}
-		case <-helloRequestTimer.C:
-			if omsgHelloRequest, err = c.sendHelloRequest(); err != nil {
-				c.closeWithError(err)
-				return
-			}
-
-			helloRequestTimer.Reset(helloRequestTimeout)
 		case <-c.closed:
 			return
 		}
