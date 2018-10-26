@@ -188,6 +188,10 @@ func (m *messageHello) deserialize(b *bytes.Reader) (err error) {
 	return binary.Read(b, binary.BigEndian, &m.UniqueNumber)
 }
 
+func (m *messageHello) String() string {
+	return fmt.Sprintf("HELLO [unique_number:%08x]", m.UniqueNumber)
+}
+
 // messagePresentation is a HELLO message.
 type messagePresentation struct {
 	Certificate *x509.Certificate
@@ -238,6 +242,14 @@ func (m *messagePresentation) deserialize(b *bytes.Reader) (err error) {
 	}
 
 	return
+}
+
+func (m *messagePresentation) String() string {
+	if m.Certificate != nil {
+		return fmt.Sprintf("PRESENTATION [cert:%s]", m.Certificate.Subject)
+	}
+
+	return fmt.Sprintf("PRESENTATION [cert:]")
 }
 
 // SessionNumber represents a session number.
@@ -317,6 +329,10 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 	return
 }
 
+func (m *messageSessionRequest) String() string {
+	return fmt.Sprintf("SESSION_REQUEST []")
+}
+
 type messageSession struct {
 	SessionNumber  SessionNumber
 	HostIdentifier HostIdentifier
@@ -376,6 +392,10 @@ func (m *messageSession) deserialize(b *bytes.Reader) (err error) {
 	return
 }
 
+func (m *messageSession) String() string {
+	return fmt.Sprintf("SESSION []")
+}
+
 // A SequenceNumber is a 4 bytes sequence number.
 type SequenceNumber uint32
 
@@ -416,4 +436,8 @@ func (m *messageData) deserialize(b *bytes.Reader) (err error) {
 	_, err = b.Read(m.Ciphertext)
 
 	return
+}
+
+func (m *messageData) String() string {
+	return fmt.Sprintf("DATA [seq:%08x]", m.SequenceNumber)
 }

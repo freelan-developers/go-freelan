@@ -31,10 +31,16 @@ func mustReadCertificateFile(path string) (cert *x509.Certificate) {
 var CertificateAlice = mustReadCertificateFile("fixtures/alice.crt")
 
 func TestSerialization(t *testing.T) {
+	type msgImpl interface {
+		serializable
+		fmt.Stringer
+	}
+
 	testCases := []struct {
-		Message     serializable
-		MessageType MessageType
-		Expected    []byte
+		Message        msgImpl
+		MessageType    MessageType
+		Expected       []byte
+		ExpectedString string
 	}{
 		{
 			Message: &messageHello{
@@ -45,6 +51,7 @@ func TestSerialization(t *testing.T) {
 				0x03, 0x00, 0x00, 0x04,
 				0x12, 0x34, 0x56, 0x78,
 			},
+			ExpectedString: "HELLO [unique_number:12345678]",
 		},
 		{
 			Message: &messageHello{
@@ -55,6 +62,7 @@ func TestSerialization(t *testing.T) {
 				0x03, 0x01, 0x00, 0x04,
 				0x12, 0x34, 0x56, 0x78,
 			},
+			ExpectedString: "HELLO [unique_number:12345678]",
 		},
 		{
 			Message:     &messagePresentation{},
@@ -63,6 +71,7 @@ func TestSerialization(t *testing.T) {
 				0x03, 0x02, 0x00, 0x02,
 				0x00, 0x00,
 			},
+			ExpectedString: "PRESENTATION [cert:]",
 		},
 		{
 			Message: &messagePresentation{
@@ -76,6 +85,7 @@ func TestSerialization(t *testing.T) {
 				},
 				CertificateAlice.Raw...,
 			),
+			ExpectedString: "PRESENTATION [cert:CN=alice,O=Freelan,ST=Alsace,C=FR]",
 		},
 		{
 			Message: &messageSessionRequest{
@@ -99,6 +109,7 @@ func TestSerialization(t *testing.T) {
 				0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x01, 0x02, 0x03,
 				0x00, 0x02, 0xaa, 0xbb,
 			},
+			ExpectedString: "SESSION_REQUEST []",
 		},
 		{
 			Message: &messageSession{
@@ -117,6 +128,7 @@ func TestSerialization(t *testing.T) {
 				0x00, 0x02, 0xab, 0xcd,
 				0x00, 0x02, 0xaa, 0xbb,
 			},
+			ExpectedString: "SESSION []",
 		},
 		{
 			Message: &messageData{
@@ -136,6 +148,7 @@ func TestSerialization(t *testing.T) {
 				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 				0x00, 0x02, 0xaa, 0xbb,
 			},
+			ExpectedString: "DATA [seq:22446688]",
 		},
 	}
 
@@ -175,6 +188,14 @@ func TestSerialization(t *testing.T) {
 			if !reflect.DeepEqual(msg, testCase.Message) {
 				t.Errorf("\n- %v\n+ %v", testCase.Message, msg)
 			}
+
+			t.Run("as string", func(t *testing.T) {
+				str := testCase.Message.String()
+
+				if str != testCase.ExpectedString {
+					t.Errorf("\n- %v\n+ %v", testCase.ExpectedString, str)
+				}
+			})
 		})
 	}
 }

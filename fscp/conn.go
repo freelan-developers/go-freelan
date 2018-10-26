@@ -180,12 +180,16 @@ func (c *Conn) dispatchLoop() {
 			case *messageHello:
 				switch frame.messageType {
 				case MessageTypeHelloRequest:
+					debugPrint("(%s <- %s) Received %s request.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+
 					if err := c.sendHelloResponse(imsg.UniqueNumber); err != nil {
 						c.closeWithError(err)
 						return
 					}
 
 				case MessageTypeHelloResponse:
+					debugPrint("(%s <- %s) Received %s response.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+
 					if imsg.UniqueNumber != uniqueNumber {
 						// The received response does not match the outstanding
 						// hello request. Ignoring.
