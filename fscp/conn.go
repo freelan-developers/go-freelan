@@ -212,6 +212,8 @@ func (c *Conn) dispatchLoop() {
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
+					debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+
 					// If we receive a presentation message, store its
 					// certificate only if we don't have one already.
 					if imsg.Certificate != nil && c.security.RemoteCertificate == nil {
@@ -221,7 +223,9 @@ func (c *Conn) dispatchLoop() {
 					fmt.Println("HERE")
 				}
 			case *messageSessionRequest:
+				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
 			case *messageSession:
+				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
 			}
 		case <-c.closed:
 			return
