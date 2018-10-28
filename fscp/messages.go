@@ -452,5 +452,5 @@ func (m *messageData) deserialize(b *bytes.Reader) (err error) {
 }
 
 func (m *messageData) String() string {
-	return fmt.Sprintf("DATA [seq:%08x]", m.SequenceNumber)
+	return fmt.Sprintf("DATA [ch:%1x,seq:%08x,clen:%d]", m.Channel, m.SequenceNumber, len(m.Ciphertext))
 }
