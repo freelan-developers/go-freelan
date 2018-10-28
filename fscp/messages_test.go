@@ -92,13 +92,13 @@ func TestSerialization(t *testing.T) {
 				SessionNumber:  0x22446688,
 				HostIdentifier: 0x12345678,
 				CipherSuites: []CipherSuite{
-					CipherSuiteECDHERSAAES128GCMSHA256,
-					CipherSuiteECDHERSAAES256GCMSHA384,
+					ECDHERSAAES128GCMSHA256,
+					ECDHERSAAES256GCMSHA384,
 				},
 				EllipticCurves: []EllipticCurve{
-					EllipticCurveSECT571K1,
-					EllipticCurveSECP384R1,
-					EllipticCurveSECP521R1,
+					SECT571K1,
+					SECP384R1,
+					SECP521R1,
 				},
 				Signature: []byte{0xaa, 0xbb},
 			},
@@ -109,14 +109,14 @@ func TestSerialization(t *testing.T) {
 				0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x01, 0x02, 0x03,
 				0x00, 0x02, 0xaa, 0xbb,
 			},
-			ExpectedString: "SESSION_REQUEST []",
+			ExpectedString: "SESSION_REQUEST [sid:22446688,hid:12345678,ciphers:ECDHERSAAES128GCMSHA256,ECDHERSAAES256GCMSHA384,curves:SECT571K1,SECP384R1,SECP521R1]",
 		},
 		{
 			Message: &messageSession{
 				SessionNumber:  0x22446688,
 				HostIdentifier: 0x12345678,
-				CipherSuite:    CipherSuiteECDHERSAAES128GCMSHA256,
-				EllipticCurve:  EllipticCurveSECT571K1,
+				CipherSuite:    ECDHERSAAES128GCMSHA256,
+				EllipticCurve:  SECT571K1,
 				PublicKey:      []byte{0xab, 0xcd},
 				Signature:      []byte{0xaa, 0xbb},
 			},
@@ -128,7 +128,7 @@ func TestSerialization(t *testing.T) {
 				0x00, 0x02, 0xab, 0xcd,
 				0x00, 0x02, 0xaa, 0xbb,
 			},
-			ExpectedString: "SESSION []",
+			ExpectedString: "SESSION [sid:22446688,hid:12345678,cipher:ECDHERSAAES128GCMSHA256,curve:SECT571K1]",
 		},
 		{
 			Message: &messageData{

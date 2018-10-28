@@ -1,3 +1,6 @@
+//go:generate stringer -type CipherSuite
+//go:generate stringer -type EllipticCurve
+
 package fscp
 
 import (
@@ -10,22 +13,22 @@ import (
 type CipherSuite uint8
 
 const (
-	// CipherSuiteECDHERSAAES128GCMSHA256 is the ECDHE-RSA-AES-128-GCM-SHA256 cipher suite.
-	CipherSuiteECDHERSAAES128GCMSHA256 = 0x01
-	// CipherSuiteECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
-	CipherSuiteECDHERSAAES256GCMSHA384 = 0x02
+	// ECDHERSAAES128GCMSHA256 is the ECDHE-RSA-AES-128-GCM-SHA256 cipher suite.
+	ECDHERSAAES128GCMSHA256 CipherSuite = 0x01
+	// ECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
+	ECDHERSAAES256GCMSHA384 CipherSuite = 0x02
 )
 
 // EllipticCurve represents an elliptic curve.
 type EllipticCurve uint8
 
 const (
-	// EllipticCurveSECT571K1 is the SECT571K1 elliptic curve.
-	EllipticCurveSECT571K1 = 0x01
-	// EllipticCurveSECP384R1 is the SECP384R1 elliptic curve.
-	EllipticCurveSECP384R1 = 0x02
-	// EllipticCurveSECP521R1 is the SECP521R1 elliptic curve.
-	EllipticCurveSECP521R1 = 0x03
+	// SECT571K1 is the SECT571K1 elliptic curve.
+	SECT571K1 EllipticCurve = 0x01
+	// SECP384R1 is the SECP384R1 elliptic curve.
+	SECP384R1 EllipticCurve = 0x02
+	// SECP521R1 is the SECP521R1 elliptic curve.
+	SECP521R1 EllipticCurve = 0x03
 )
 
 // ClientSecurity contains all the security settings of a client.
@@ -59,8 +62,8 @@ func (s *ClientSecurity) Validate() error {
 func (s *ClientSecurity) supportedCipherSuites() []CipherSuite {
 	if s.CipherSuites == nil {
 		return []CipherSuite{
-			CipherSuiteECDHERSAAES128GCMSHA256,
-			CipherSuiteECDHERSAAES256GCMSHA384,
+			ECDHERSAAES128GCMSHA256,
+			ECDHERSAAES256GCMSHA384,
 		}
 	}
 
@@ -70,9 +73,9 @@ func (s *ClientSecurity) supportedCipherSuites() []CipherSuite {
 func (s *ClientSecurity) supportedEllipticCurves() []EllipticCurve {
 	if s.EllipticCurves == nil {
 		return []EllipticCurve{
-			EllipticCurveSECT571K1,
-			EllipticCurveSECP384R1,
-			EllipticCurveSECP521R1,
+			SECT571K1,
+			SECP384R1,
+			SECP521R1,
 		}
 	}
 

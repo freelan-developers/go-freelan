@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"fmt"
+	"strings"
 )
 
 // MessageVersion represents a message version.
@@ -330,7 +331,19 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 }
 
 func (m *messageSessionRequest) String() string {
-	return fmt.Sprintf("SESSION_REQUEST []")
+	var ciphers []string
+
+	for _, cipher := range m.CipherSuites {
+		ciphers = append(ciphers, cipher.String())
+	}
+
+	var curves []string
+
+	for _, curve := range m.EllipticCurves {
+		curves = append(curves, curve.String())
+	}
+
+	return fmt.Sprintf("SESSION_REQUEST [sid:%08x,hid:%08x,ciphers:%s,curves:%s]", m.SessionNumber, m.HostIdentifier, strings.Join(ciphers, ","), strings.Join(curves, ","))
 }
 
 type messageSession struct {
@@ -393,7 +406,7 @@ func (m *messageSession) deserialize(b *bytes.Reader) (err error) {
 }
 
 func (m *messageSession) String() string {
-	return fmt.Sprintf("SESSION []")
+	return fmt.Sprintf("SESSION [sid:%08x,hid:%08x,cipher:%s,curve:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve)
 }
 
 // A SequenceNumber is a 4 bytes sequence number.
