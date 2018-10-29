@@ -23,6 +23,7 @@ type Conn struct {
 	hostIdentifier       HostIdentifier
 	remoteHostIdentifier *HostIdentifier
 	security             ClientSecurity
+	currentSessionNumber SessionNumber
 
 	incoming   chan messageFrame
 	connected  chan struct{}
@@ -205,27 +206,29 @@ func (c *Conn) dispatchLoop() {
 						c.closeWithError(err)
 						return
 					}
-
-					if c.security.RemoteCertificate != nil {
-					}
 				}
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
 					debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
 
+					//TODO: Check if the certificate is acceptable.
+
 					// If we receive a presentation message, store its
 					// certificate only if we don't have one already.
-					if imsg.Certificate != nil && c.security.RemoteCertificate == nil {
-						c.security.RemoteCertificate = imsg.Certificate
-					}
+					c.security.RemoteCertificate = imsg.Certificate
 
-					fmt.Println("HERE")
+					if err := c.sendSessionRequest(c.currentSessionNumber); err != nil {
+						c.closeWithError(err)
+						return
+					}
 				}
 			case *messageSessionRequest:
 				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
 			case *messageSession:
 				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+			default:
+				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), frame.message)
 			}
 		case <-c.closed:
 			return

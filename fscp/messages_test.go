@@ -112,6 +112,30 @@ func TestSerialization(t *testing.T) {
 			ExpectedString: "SESSION_REQUEST [sid:22446688,hid:12345678,ciphers:ECDHERSAAES128GCMSHA256,ECDHERSAAES256GCMSHA384,curves:SECT571K1,SECP384R1,SECP521R1]",
 		},
 		{
+			Message: &messageSessionRequest{
+				SessionNumber:  0x22446688,
+				HostIdentifier: 0x12345678,
+				CipherSuites: []CipherSuite{
+					ECDHERSAAES128GCMSHA256,
+					ECDHERSAAES256GCMSHA384,
+				},
+				EllipticCurves: []EllipticCurve{
+					SECT571K1,
+					SECP384R1,
+					SECP521R1,
+				},
+				Signature: nil,
+			},
+			MessageType: MessageTypeSessionRequest,
+			Expected: []byte{
+				0x03, 0x03, 0x00, 0x13,
+				0x22, 0x44, 0x66, 0x88, 0x12, 0x34, 0x56, 0x78,
+				0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x01, 0x02, 0x03,
+				0x00, 0x00,
+			},
+			ExpectedString: "SESSION_REQUEST [sid:22446688,hid:12345678,ciphers:ECDHERSAAES128GCMSHA256,ECDHERSAAES256GCMSHA384,curves:SECT571K1,SECP384R1,SECP521R1]",
+		},
+		{
 			Message: &messageSession{
 				SessionNumber:  0x22446688,
 				HostIdentifier: 0x12345678,

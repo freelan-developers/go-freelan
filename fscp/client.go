@@ -163,6 +163,8 @@ func (c *Client) dispatchLoop() {
 				// If the connection's incoming queue is full, we simply discard
 				// the frame.
 			}
+		} else {
+			debugPrint("failed to read message: %s\n", err)
 		}
 	}
 }

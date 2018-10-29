@@ -153,7 +153,9 @@ func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error)
 		}
 	}
 
-	err = msg.deserialize(b)
+	if err = msg.deserialize(b); err != nil {
+		err = fmt.Errorf("failed to deserialize %s message: %s", t, err)
+	}
 
 	return
 }
@@ -324,8 +326,12 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 
 	binary.Read(b, binary.BigEndian, &size)
 
-	m.Signature = make([]byte, size)
-	_, err = b.Read(m.Signature)
+	if size == 0 {
+		m.Signature = nil
+	} else {
+		m.Signature = make([]byte, size)
+		_, err = b.Read(m.Signature)
+	}
 
 	return
 }
