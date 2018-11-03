@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"fmt"
-	"strings"
 )
 
 // MessageVersion represents a message version.
@@ -264,8 +263,8 @@ type HostIdentifier uint32
 type messageSessionRequest struct {
 	SessionNumber  SessionNumber
 	HostIdentifier HostIdentifier
-	CipherSuites   []CipherSuite
-	EllipticCurves []EllipticCurve
+	CipherSuites   CipherSuiteSlice
+	EllipticCurves EllipticCurveSlice
 	Signature      []byte
 }
 
@@ -310,7 +309,7 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 
 	binary.Read(b, binary.BigEndian, &size)
 
-	m.CipherSuites = make([]CipherSuite, size)
+	m.CipherSuites = make(CipherSuiteSlice, size)
 
 	for i := range m.CipherSuites {
 		binary.Read(b, binary.BigEndian, &m.CipherSuites[i])
@@ -318,7 +317,7 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 
 	binary.Read(b, binary.BigEndian, &size)
 
-	m.EllipticCurves = make([]EllipticCurve, size)
+	m.EllipticCurves = make(EllipticCurveSlice, size)
 
 	for i := range m.EllipticCurves {
 		binary.Read(b, binary.BigEndian, &m.EllipticCurves[i])
@@ -337,19 +336,7 @@ func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
 }
 
 func (m *messageSessionRequest) String() string {
-	var ciphers []string
-
-	for _, cipher := range m.CipherSuites {
-		ciphers = append(ciphers, cipher.String())
-	}
-
-	var curves []string
-
-	for _, curve := range m.EllipticCurves {
-		curves = append(curves, curve.String())
-	}
-
-	return fmt.Sprintf("SESSION_REQUEST [sid:%08x,hid:%08x,ciphers:%s,curves:%s]", m.SessionNumber, m.HostIdentifier, strings.Join(ciphers, ","), strings.Join(curves, ","))
+	return fmt.Sprintf("SESSION_REQUEST [sid:%08x,hid:%08x,ciphers:%s,curves:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuites, m.EllipticCurves)
 }
 
 type messageSession struct {

@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"errors"
+	"strings"
 )
 
 // CipherSuite represents a cipher suite.
@@ -18,6 +19,40 @@ const (
 	// ECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
 	ECDHERSAAES256GCMSHA384 CipherSuite = 0x02
 )
+
+// CipherSuiteSlice represents a slice of cipher suites.
+type CipherSuiteSlice []CipherSuite
+
+// DefaultCipherSuites returns the default cipher suites.
+func DefaultCipherSuites() CipherSuiteSlice {
+	return CipherSuiteSlice{
+		ECDHERSAAES256GCMSHA384,
+		ECDHERSAAES128GCMSHA256,
+	}
+}
+
+// FindCommon returns the first cipher suite that is found in both slices.
+func (s CipherSuiteSlice) FindCommon(others CipherSuiteSlice) (CipherSuite, error) {
+	for _, value := range s {
+		for _, other := range others {
+			if value == other {
+				return value, nil
+			}
+		}
+	}
+
+	return 0, errors.New("no acceptable cipher suite could be found")
+}
+
+func (s CipherSuiteSlice) String() string {
+	var strs []string
+
+	for _, value := range s {
+		strs = append(strs, value.String())
+	}
+
+	return strings.Join(strs, ",")
+}
 
 // EllipticCurve represents an elliptic curve.
 type EllipticCurve uint8
@@ -31,12 +66,47 @@ const (
 	SECP521R1 EllipticCurve = 0x03
 )
 
+// EllipticCurveSlice represents a slice of elliptic curves.
+type EllipticCurveSlice []EllipticCurve
+
+// DefaultEllipticCurves returns the default elliptic curves.
+func DefaultEllipticCurves() EllipticCurveSlice {
+	return EllipticCurveSlice{
+		SECT571K1,
+		SECP384R1,
+		SECP521R1,
+	}
+}
+
+// FindCommonreturns the first elliptic curve that is found in both slices.
+func (s EllipticCurveSlice) FindCommon(others EllipticCurveSlice) (EllipticCurve, error) {
+	for _, value := range s {
+		for _, other := range others {
+			if value == other {
+				return value, nil
+			}
+		}
+	}
+
+	return 0, errors.New("no acceptable elliptic curve could be found")
+}
+
+func (s EllipticCurveSlice) String() string {
+	var strs []string
+
+	for _, value := range s {
+		strs = append(strs, value.String())
+	}
+
+	return strings.Join(strs, ",")
+}
+
 // ClientSecurity contains all the security settings of a client.
 type ClientSecurity struct {
 	Certificate       *x509.Certificate
 	PrivateKey        *rsa.PrivateKey
 	RemoteCertificate *x509.Certificate
-	CipherSuites      []CipherSuite
+	CipherSuites      CipherSuiteSlice
 	EllipticCurves    []EllipticCurve
 }
 
@@ -59,12 +129,9 @@ func (s *ClientSecurity) Validate() error {
 	return nil
 }
 
-func (s *ClientSecurity) supportedCipherSuites() []CipherSuite {
+func (s *ClientSecurity) supportedCipherSuites() CipherSuiteSlice {
 	if s.CipherSuites == nil {
-		return []CipherSuite{
-			ECDHERSAAES128GCMSHA256,
-			ECDHERSAAES256GCMSHA384,
-		}
+		return DefaultCipherSuites()
 	}
 
 	return s.CipherSuites
@@ -72,11 +139,7 @@ func (s *ClientSecurity) supportedCipherSuites() []CipherSuite {
 
 func (s *ClientSecurity) supportedEllipticCurves() []EllipticCurve {
 	if s.EllipticCurves == nil {
-		return []EllipticCurve{
-			SECT571K1,
-			SECP384R1,
-			SECP521R1,
-		}
+		return DefaultEllipticCurves()
 	}
 
 	return s.EllipticCurves

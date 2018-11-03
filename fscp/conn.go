@@ -225,6 +225,7 @@ func (c *Conn) dispatchLoop() {
 				}
 			case *messageSessionRequest:
 				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+				//TODO: Filter out some hosts based on a callback or other client logic.
 			case *messageSession:
 				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
 			default:
