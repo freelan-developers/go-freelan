@@ -269,6 +269,7 @@ type messageSessionRequest struct {
 }
 
 func (m *messageSessionRequest) computeSignature() error {
+	// TODO: Implement.
 	return nil
 }
 
@@ -346,6 +347,11 @@ type messageSession struct {
 	EllipticCurve  EllipticCurve
 	PublicKey      []byte
 	Signature      []byte
+}
+
+func (m *messageSession) computeSignature() error {
+	// TODO: Implement.
+	return nil
 }
 
 func (m *messageSession) serialize(b *bytes.Buffer) error {

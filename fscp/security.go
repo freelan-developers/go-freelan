@@ -14,6 +14,8 @@ import (
 type CipherSuite uint8
 
 const (
+	// NullCipherSuite represents an invalid cipher suite.
+	NullCipherSuite CipherSuite = 0x00
 	// ECDHERSAAES128GCMSHA256 is the ECDHE-RSA-AES-128-GCM-SHA256 cipher suite.
 	ECDHERSAAES128GCMSHA256 CipherSuite = 0x01
 	// ECDHERSAAES256GCMSHA384 is the ECDHE-RSA-AES-256-GCM-SHA384 cipher suite.
@@ -41,7 +43,7 @@ func (s CipherSuiteSlice) FindCommon(others CipherSuiteSlice) (CipherSuite, erro
 		}
 	}
 
-	return 0, errors.New("no acceptable cipher suite could be found")
+	return NullCipherSuite, errors.New("no acceptable cipher suite could be found")
 }
 
 func (s CipherSuiteSlice) String() string {
@@ -58,6 +60,8 @@ func (s CipherSuiteSlice) String() string {
 type EllipticCurve uint8
 
 const (
+	// NullEllipticCurve represents an invalid elliptic curve.
+	NullEllipticCurve EllipticCurve = 0x00
 	// SECT571K1 is the SECT571K1 elliptic curve.
 	SECT571K1 EllipticCurve = 0x01
 	// SECP384R1 is the SECP384R1 elliptic curve.
@@ -78,7 +82,7 @@ func DefaultEllipticCurves() EllipticCurveSlice {
 	}
 }
 
-// FindCommonreturns the first elliptic curve that is found in both slices.
+// FindCommon returns the first elliptic curve that is found in both slices.
 func (s EllipticCurveSlice) FindCommon(others EllipticCurveSlice) (EllipticCurve, error) {
 	for _, value := range s {
 		for _, other := range others {
@@ -107,7 +111,7 @@ type ClientSecurity struct {
 	PrivateKey        *rsa.PrivateKey
 	RemoteCertificate *x509.Certificate
 	CipherSuites      CipherSuiteSlice
-	EllipticCurves    []EllipticCurve
+	EllipticCurves    EllipticCurveSlice
 }
 
 // Validate the security.
@@ -137,7 +141,7 @@ func (s *ClientSecurity) supportedCipherSuites() CipherSuiteSlice {
 	return s.CipherSuites
 }
 
-func (s *ClientSecurity) supportedEllipticCurves() []EllipticCurve {
+func (s *ClientSecurity) supportedEllipticCurves() EllipticCurveSlice {
 	if s.EllipticCurves == nil {
 		return DefaultEllipticCurves()
 	}

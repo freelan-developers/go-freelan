@@ -24,6 +24,8 @@ type Conn struct {
 	remoteHostIdentifier *HostIdentifier
 	security             ClientSecurity
 	currentSessionNumber SessionNumber
+	currentCipherSuite   CipherSuite
+	currentEllipticCurve EllipticCurve
 
 	incoming   chan messageFrame
 	connected  chan struct{}
@@ -65,14 +67,24 @@ func (c *Conn) Close() error {
 	return c.closeWithError(io.EOF)
 }
 
+func (c *Conn) debugPrint(msg string, args ...interface{}) {
+	debugPrint("(%s <- %s) %s", c.LocalAddr(), c.RemoteAddr(), fmt.Sprintf(msg, args...))
+}
+
 // closeWithError closes the connection with the specified error.
 func (c *Conn) closeWithError(err error) error {
 	c.once.Do(func() {
+		c.debugPrint("closing connection: %s\n", err)
+
 		c.closeError = err
 		close(c.closed)
 	})
 
 	return c.closeError
+}
+
+func (c *Conn) warning(err error) {
+	c.debugPrint(err.Error())
 }
 
 // LocalAddr returns the local address of the connection.
@@ -158,6 +170,21 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 	return c.writeMessage(MessageTypeSessionRequest, msg)
 }
 
+func (c *Conn) sendSession(sessionNumber SessionNumber) error {
+	msg := &messageSession{
+		CipherSuite:    c.currentCipherSuite,
+		EllipticCurve:  c.currentEllipticCurve,
+		HostIdentifier: c.hostIdentifier,
+		SessionNumber:  sessionNumber,
+	}
+
+	if err := msg.computeSignature(); err != nil {
+		return fmt.Errorf("failed to forge session message: %s", err)
+	}
+
+	return c.writeMessage(MessageTypeSession, msg)
+}
+
 func (c *Conn) dispatchLoop() {
 	uniqueNumber := UniqueNumber(rand.Uint32())
 
@@ -181,7 +208,7 @@ func (c *Conn) dispatchLoop() {
 			case *messageHello:
 				switch frame.messageType {
 				case MessageTypeHelloRequest:
-					debugPrint("(%s <- %s) Received %s request.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+					c.debugPrint("Received %s request.\n", imsg)
 
 					if err := c.sendHelloResponse(imsg.UniqueNumber); err != nil {
 						c.closeWithError(err)
@@ -189,7 +216,7 @@ func (c *Conn) dispatchLoop() {
 					}
 
 				case MessageTypeHelloResponse:
-					debugPrint("(%s <- %s) Received %s response.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+					c.debugPrint("Received %s response.\n", imsg)
 
 					if imsg.UniqueNumber != uniqueNumber {
 						// The received response does not match the outstanding
@@ -210,7 +237,7 @@ func (c *Conn) dispatchLoop() {
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
-					debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+					c.debugPrint("Received %s.\n", imsg)
 
 					//TODO: Check if the certificate is acceptable.
 
@@ -224,12 +251,34 @@ func (c *Conn) dispatchLoop() {
 					}
 				}
 			case *messageSessionRequest:
-				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+				c.debugPrint("Received %s.\n", imsg)
 				//TODO: Filter out some hosts based on a callback or other client logic.
+
+				cipherSuite, err := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
+
+				if err != nil {
+					c.warning(fmt.Errorf("ignoring session request: %s", err))
+					continue
+				}
+
+				ellipticCurve, err := c.security.supportedEllipticCurves().FindCommon(imsg.EllipticCurves)
+
+				if err != nil {
+					c.warning(fmt.Errorf("ignoring session request: %s", err))
+					continue
+				}
+
+				if c.currentCipherSuite != NullCipherSuite && cipherSuite != c.currentCipherSuite {
+					c.warning(fmt.Errorf("ignoring session request: refusing to change cipher suite from %s to %s", c.currentCipherSuite, cipherSuite))
+					continue
+				}
+
+				c.debugPrint("Selected cipher suite: %s.\n", cipherSuite)
+				c.debugPrint("Selected elliptic curve: %s.\n", ellipticCurve)
 			case *messageSession:
-				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), imsg)
+				c.debugPrint("Received %s.\n", imsg)
 			default:
-				debugPrint("(%s <- %s) Received %s.\n", c.LocalAddr(), c.RemoteAddr(), frame.message)
+				c.debugPrint("Received %s.\n", frame.message)
 			}
 		case <-c.closed:
 			return
