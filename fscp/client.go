@@ -11,31 +11,36 @@ import (
 
 // Client represents a FSCP connection.
 type Client struct {
-	transportConn net.PacketConn
-	security      ClientSecurity
-	backlog       chan *Conn
-	closed        bool
+	transportConn  net.PacketConn
+	hostIdentifier HostIdentifier
+	security       ClientSecurity
+	backlog        chan *Conn
+	closed         bool
 
 	lock        sync.Mutex
 	connsByAddr map[string]*Conn
 }
 
 // NewClient creates a new client.
-func NewClient(conn net.PacketConn, security *ClientSecurity) (*Client, error) {
+func NewClient(conn net.PacketConn, security *ClientSecurity) (client *Client, err error) {
 	if security == nil {
 		security = &ClientSecurity{}
 	}
 
-	if err := security.Validate(); err != nil {
+	if err = security.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to instanciate a new client: %s", err)
 	}
 
-	client := &Client{
+	client = &Client{
 		transportConn: conn,
 		security:      *security,
 		backlog:       make(chan *Conn, 20),
 		closed:        false,
 		connsByAddr:   map[string]*Conn{},
+	}
+
+	if client.hostIdentifier, err = GenerateHostIdentifier(); err != nil {
+		return
 	}
 
 	go client.dispatchLoop()
@@ -156,7 +161,9 @@ func (c *Client) dispatchLoop() {
 			}(conn)
 		}
 
-		if messageType, message, err := readMessage(bytes.NewReader(data)); err == nil {
+		var reader lenReader = bytes.NewReader(data)
+
+		if messageType, message, err := readMessage(reader); err == nil {
 			select {
 			case conn.incoming <- messageFrame{messageType, message}:
 			default:
@@ -164,7 +171,7 @@ func (c *Client) dispatchLoop() {
 				// the frame.
 			}
 		} else {
-			debugPrint("failed to read message: %s\n", err)
+			debugPrintf("failed to read message: %s\n", err)
 		}
 	}
 }
@@ -194,7 +201,7 @@ func (c *Client) addConn(remoteAddr *Addr) (conn *Conn, ok bool) {
 
 		// This is a new peer so we start a new connection.
 		writer := &clientWriter{c, remoteAddr.TransportAddr}
-		conn = newConn(&Addr{TransportAddr: c.Addr()}, remoteAddr, writer, c.security)
+		conn = newConn(&Addr{TransportAddr: c.Addr()}, remoteAddr, writer, c.hostIdentifier, c.security)
 
 		c.connsByAddr[key] = conn
 

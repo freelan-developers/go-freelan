@@ -2,9 +2,11 @@ package fscp
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 // MessageVersion represents a message version.
@@ -62,6 +64,11 @@ func (m MessageType) String() string {
 	}
 }
 
+type lenReader interface {
+	io.Reader
+	Len() int
+}
+
 // Write a message header to the specified writer.
 func writeHeader(b *bytes.Buffer, t MessageType, payloadSize int) (err error) {
 	b.Grow(4 + payloadSize)
@@ -93,7 +100,7 @@ func writeDataMessage(b *bytes.Buffer, msg *messageData) error {
 	return writeMessage(b, MessageTypeData+MessageType(msg.Channel), msg)
 }
 
-func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
+func readHeader(b lenReader) (t MessageType, payloadSize int, err error) {
 	if b.Len() < 4 {
 		err = fmt.Errorf("unable to parse header: only %d byte(s) when %d or more were expected", b.Len(), 4)
 		return
@@ -110,21 +117,29 @@ func readHeader(b *bytes.Reader) (t MessageType, payloadSize int, err error) {
 
 	var size uint16
 
-	binary.Read(b, binary.BigEndian, &t)
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &t); err != nil {
+		err = fmt.Errorf("reading message type: %s", err)
+		return
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		err = fmt.Errorf("reading payload size: %s", err)
+		return
+	}
 
 	payloadSize = int(size)
 
 	return
 }
 
-func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error) {
+func readMessage(b lenReader) (t MessageType, msg deserializable, err error) {
 	var payloadSize int
 
 	if t, payloadSize, err = readHeader(b); err != nil {
+		err = fmt.Errorf("parsing header: %s", err)
 		return
 	} else if b.Len() < payloadSize {
-		err = fmt.Errorf("error when parsing body: buffer is supposed to be at least %d byte(s) long but is only %d", payloadSize, b.Len())
+		err = fmt.Errorf("parsing body: buffer is supposed to be at least %d byte(s) long but is only %d", payloadSize, b.Len())
 		return
 	}
 
@@ -147,7 +162,7 @@ func readMessage(b *bytes.Reader) (t MessageType, msg deserializable, err error)
 				Channel: 0,
 			}
 		default:
-			err = fmt.Errorf("error when parsing body: unknown message type '%02x'", t)
+			err = fmt.Errorf("parsing body: unknown message type '%02x'", t)
 			return
 		}
 	}
@@ -165,7 +180,7 @@ type serializable interface {
 }
 
 type deserializable interface {
-	deserialize(*bytes.Reader) error
+	deserialize(lenReader) error
 }
 
 // An UniqueNumber is a randomly generated number used during the HELLO exchange.
@@ -182,7 +197,7 @@ func (m *messageHello) serialize(b *bytes.Buffer) error {
 
 func (m *messageHello) serializationSize() int { return 4 }
 
-func (m *messageHello) deserialize(b *bytes.Reader) (err error) {
+func (m *messageHello) deserialize(b lenReader) (err error) {
 	if b.Len() != 4 {
 		return fmt.Errorf("buffer should be %d bytes long but is %d", 4, b.Len())
 	}
@@ -218,7 +233,7 @@ func (m *messagePresentation) serializationSize() int {
 	return 2 + len(m.Certificate.Raw)
 }
 
-func (m *messagePresentation) deserialize(b *bytes.Reader) (err error) {
+func (m *messagePresentation) deserialize(b lenReader) (err error) {
 	if b.Len() < 2 {
 		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 2, b.Len())
 	}
@@ -236,7 +251,7 @@ func (m *messagePresentation) deserialize(b *bytes.Reader) (err error) {
 
 		der := make([]byte, int(size))
 
-		if _, err = b.Read(der); err != nil {
+		if err = binary.Read(b, binary.BigEndian, der); err != nil {
 			return
 		}
 
@@ -258,7 +273,18 @@ func (m *messagePresentation) String() string {
 type SessionNumber uint32
 
 // HostIdentifier represents a host identifier.
-type HostIdentifier uint32
+type HostIdentifier [32]byte
+
+// GenerateHostIdentifier generates a new random host identifier.
+func GenerateHostIdentifier() (result HostIdentifier, err error) {
+	var n int
+
+	if n, err = rand.Read(result[:]); n != len(result) && err != nil {
+		err = fmt.Errorf("generating a random host identifier: %s", err)
+	}
+
+	return
+}
 
 type messageSessionRequest struct {
 	SessionNumber  SessionNumber
@@ -298,39 +324,56 @@ func (m *messageSessionRequest) serializationSize() int {
 	return 4 + 4 + 2 + len(m.CipherSuites) + 2 + len(m.EllipticCurves) + 2 + len(m.Signature)
 }
 
-func (m *messageSessionRequest) deserialize(b *bytes.Reader) (err error) {
+func (m *messageSessionRequest) deserialize(b lenReader) (err error) {
 	if b.Len() < 10 {
 		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 10, b.Len())
 	}
 
-	binary.Read(b, binary.BigEndian, &m.SessionNumber)
-	binary.Read(b, binary.BigEndian, &m.HostIdentifier)
+	if err = binary.Read(b, binary.BigEndian, &m.SessionNumber); err != nil {
+		return fmt.Errorf("reading session number: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &m.HostIdentifier); err != nil {
+		return fmt.Errorf("reading host identifier: %s", err)
+	}
 
 	var size uint16
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading cipher suite size: %s", err)
+	}
 
 	m.CipherSuites = make(CipherSuiteSlice, size)
 
 	for i := range m.CipherSuites {
-		binary.Read(b, binary.BigEndian, &m.CipherSuites[i])
+		if err = binary.Read(b, binary.BigEndian, &m.CipherSuites[i]); err != nil {
+			return fmt.Errorf("reading cipher suite %d (of %d): %s", i, len(m.CipherSuites), err)
+		}
 	}
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading elliptic curves size: %s", err)
+	}
 
 	m.EllipticCurves = make(EllipticCurveSlice, size)
 
 	for i := range m.EllipticCurves {
-		binary.Read(b, binary.BigEndian, &m.EllipticCurves[i])
+		if err = binary.Read(b, binary.BigEndian, &m.EllipticCurves[i]); err != nil {
+			return fmt.Errorf("reading elliptic curve %d (of %d): %s", i, len(m.EllipticCurves), err)
+		}
 	}
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading signature size: %s", err)
+	}
 
 	if size == 0 {
 		m.Signature = nil
 	} else {
 		m.Signature = make([]byte, size)
-		_, err = b.Read(m.Signature)
+		if err = binary.Read(b, binary.BigEndian, m.Signature); err != nil {
+			return fmt.Errorf("reading signature: %s", err)
+		}
 	}
 
 	return
@@ -376,30 +419,59 @@ func (m *messageSession) serializationSize() int {
 	return 4 + 4 + 2 + 2 + 2 + len(m.PublicKey) + 2 + len(m.Signature)
 }
 
-func (m *messageSession) deserialize(b *bytes.Reader) (err error) {
+func (m *messageSession) deserialize(b lenReader) (err error) {
 	if b.Len() < 16 {
 		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 16, b.Len())
 	}
 
-	binary.Read(b, binary.BigEndian, &m.SessionNumber)
-	binary.Read(b, binary.BigEndian, &m.HostIdentifier)
-	binary.Read(b, binary.BigEndian, &m.CipherSuite)
-	binary.Read(b, binary.BigEndian, &m.EllipticCurve)
+	if err = binary.Read(b, binary.BigEndian, &m.SessionNumber); err != nil {
+		return fmt.Errorf("reading session number: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &m.HostIdentifier); err != nil {
+		return fmt.Errorf("reading host identifier: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &m.CipherSuite); err != nil {
+		return fmt.Errorf("reading cipher suite: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &m.EllipticCurve); err != nil {
+		return fmt.Errorf("reading elliptic curve: %s", err)
+	}
 
 	// Discard two bytes.
-	b.Read([]byte{0x00, 0x00})
+	var n int
+
+	if n, err = b.Read([]byte{0x00, 0x00}); n != 2 {
+		if err != nil {
+			return fmt.Errorf("failing to read unused bytes: %s", err)
+		}
+
+		return fmt.Errorf("failing to read unused bytes: read only %d but %d were expected", n, 2)
+	}
 
 	var size uint16
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading public key size: %s", err)
+	}
 
 	m.PublicKey = make([]byte, size)
-	_, err = b.Read(m.PublicKey)
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, m.PublicKey); err != nil {
+		return fmt.Errorf("reading public key: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading signature size: %s", err)
+	}
 
 	m.Signature = make([]byte, size)
-	_, err = b.Read(m.Signature)
+
+	if err = binary.Read(b, binary.BigEndian, m.Signature); err != nil {
+		return fmt.Errorf("reading signature: %s", err)
+	}
 
 	return
 }
@@ -418,12 +490,22 @@ type messageData struct {
 	Ciphertext     []byte
 }
 
-func (m *messageData) serialize(b *bytes.Buffer) error {
-	binary.Write(b, binary.BigEndian, m.SequenceNumber)
-	b.Write(m.GCMTag[:])
+func (m *messageData) serialize(b *bytes.Buffer) (err error) {
+	if err = binary.Write(b, binary.BigEndian, m.SequenceNumber); err != nil {
+		return fmt.Errorf("writing sequence number: %s", err)
+	}
 
-	binary.Write(b, binary.BigEndian, uint16(len(m.Ciphertext)))
-	b.Write(m.Ciphertext)
+	if err = binary.Write(b, binary.BigEndian, m.GCMTag); err != nil {
+		return fmt.Errorf("writing GCM tag: %s", err)
+	}
+
+	if err = binary.Write(b, binary.BigEndian, uint16(len(m.Ciphertext))); err != nil {
+		return fmt.Errorf("writing ciphertext size: %s", err)
+	}
+
+	if err = binary.Write(b, binary.BigEndian, m.Ciphertext); err != nil {
+		return fmt.Errorf("writing ciphertext: %s", err)
+	}
 
 	return nil
 }
@@ -432,20 +514,30 @@ func (m *messageData) serializationSize() int {
 	return 4 + 16 + 2 + len(m.Ciphertext)
 }
 
-func (m *messageData) deserialize(b *bytes.Reader) (err error) {
+func (m *messageData) deserialize(b lenReader) (err error) {
 	if b.Len() < 22 {
 		return fmt.Errorf("buffer should be at least %d bytes long but is %d", 22, b.Len())
 	}
 
-	binary.Read(b, binary.BigEndian, &m.SequenceNumber)
-	_, err = b.Read(m.GCMTag[:])
+	if err = binary.Read(b, binary.BigEndian, &m.SequenceNumber); err != nil {
+		return fmt.Errorf("reading sequence number: %s", err)
+	}
+
+	if err = binary.Read(b, binary.BigEndian, &m.GCMTag); err != nil {
+		return fmt.Errorf("reading GCM tag: %s", err)
+	}
 
 	var size uint16
 
-	binary.Read(b, binary.BigEndian, &size)
+	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
+		return fmt.Errorf("reading ciphertext size: %s", err)
+	}
 
 	m.Ciphertext = make([]byte, size)
-	_, err = b.Read(m.Ciphertext)
+
+	if err = binary.Read(b, binary.BigEndian, m.Ciphertext); err != nil {
+		return fmt.Errorf("reading ciphertext: %s", err)
+	}
 
 	return
 }

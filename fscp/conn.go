@@ -34,12 +34,12 @@ type Conn struct {
 	once       sync.Once
 }
 
-func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, security ClientSecurity) *Conn {
+func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, hostIdentifier HostIdentifier, security ClientSecurity) *Conn {
 	conn := &Conn{
 		localAddr:      localAddr,
 		remoteAddr:     remoteAddr,
 		writer:         w,
-		hostIdentifier: HostIdentifier(rand.Uint32()),
+		hostIdentifier: hostIdentifier,
 		security:       security,
 
 		incoming:  make(chan messageFrame, 10),
@@ -67,14 +67,14 @@ func (c *Conn) Close() error {
 	return c.closeWithError(io.EOF)
 }
 
-func (c *Conn) debugPrint(msg string, args ...interface{}) {
-	debugPrint("(%s <- %s) %s", c.LocalAddr(), c.RemoteAddr(), fmt.Sprintf(msg, args...))
+func (c *Conn) debugPrintf(msg string, args ...interface{}) {
+	debugPrintf("(%s <- %s) %s", c.LocalAddr(), c.RemoteAddr(), fmt.Sprintf(msg, args...))
 }
 
 // closeWithError closes the connection with the specified error.
 func (c *Conn) closeWithError(err error) error {
 	c.once.Do(func() {
-		c.debugPrint("closing connection: %s\n", err)
+		c.debugPrintf("closing connection: %s\n", err)
 
 		c.closeError = err
 		close(c.closed)
@@ -84,7 +84,7 @@ func (c *Conn) closeWithError(err error) error {
 }
 
 func (c *Conn) warning(err error) {
-	c.debugPrint(err.Error())
+	c.debugPrintf(err.Error())
 }
 
 // LocalAddr returns the local address of the connection.
@@ -208,7 +208,7 @@ func (c *Conn) dispatchLoop() {
 			case *messageHello:
 				switch frame.messageType {
 				case MessageTypeHelloRequest:
-					c.debugPrint("Received %s request.\n", imsg)
+					c.debugPrintf("Received %s request.\n", imsg)
 
 					if err := c.sendHelloResponse(imsg.UniqueNumber); err != nil {
 						c.closeWithError(err)
@@ -216,7 +216,7 @@ func (c *Conn) dispatchLoop() {
 					}
 
 				case MessageTypeHelloResponse:
-					c.debugPrint("Received %s response.\n", imsg)
+					c.debugPrintf("Received %s response.\n", imsg)
 
 					if imsg.UniqueNumber != uniqueNumber {
 						// The received response does not match the outstanding
@@ -237,7 +237,7 @@ func (c *Conn) dispatchLoop() {
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
-					c.debugPrint("Received %s.\n", imsg)
+					c.debugPrintf("Received %s.\n", imsg)
 
 					//TODO: Check if the certificate is acceptable.
 
@@ -251,7 +251,7 @@ func (c *Conn) dispatchLoop() {
 					}
 				}
 			case *messageSessionRequest:
-				c.debugPrint("Received %s.\n", imsg)
+				c.debugPrintf("Received %s.\n", imsg)
 				//TODO: Filter out some hosts based on a callback or other client logic.
 
 				cipherSuite, err := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
@@ -273,12 +273,12 @@ func (c *Conn) dispatchLoop() {
 					continue
 				}
 
-				c.debugPrint("Selected cipher suite: %s.\n", cipherSuite)
-				c.debugPrint("Selected elliptic curve: %s.\n", ellipticCurve)
+				c.debugPrintf("Selected cipher suite: %s.\n", cipherSuite)
+				c.debugPrintf("Selected elliptic curve: %s.\n", ellipticCurve)
 			case *messageSession:
-				c.debugPrint("Received %s.\n", imsg)
+				c.debugPrintf("Received %s.\n", imsg)
 			default:
-				c.debugPrint("Received %s.\n", frame.message)
+				c.debugPrintf("Received %s.\n", frame.message)
 			}
 		case <-c.closed:
 			return
