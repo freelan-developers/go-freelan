@@ -176,7 +176,7 @@ func readMessage(b lenReader) (t MessageType, msg deserializable, err error) {
 
 type serializable interface {
 	serializationSize() int
-	serialize(*bytes.Buffer) error
+	serialize(io.Writer) error
 }
 
 type deserializable interface {
@@ -191,7 +191,7 @@ type messageHello struct {
 	UniqueNumber UniqueNumber
 }
 
-func (m *messageHello) serialize(b *bytes.Buffer) error {
+func (m *messageHello) serialize(b io.Writer) error {
 	return binary.Write(b, binary.BigEndian, &m.UniqueNumber)
 }
 
@@ -214,7 +214,7 @@ type messagePresentation struct {
 	Certificate *x509.Certificate
 }
 
-func (m *messagePresentation) serialize(b *bytes.Buffer) error {
+func (m *messagePresentation) serialize(b io.Writer) error {
 	if m.Certificate == nil {
 		return binary.Write(b, binary.BigEndian, uint16(0))
 	}
@@ -294,28 +294,78 @@ type messageSessionRequest struct {
 	Signature      []byte
 }
 
-func (m *messageSessionRequest) computeSignature() error {
-	// TODO: Implement.
+func (m *messageSessionRequest) computeSignature(signer Signer) (err error) {
+	buf := &bytes.Buffer{}
+
+	if err = m.serializeUnsigned(buf); err != nil {
+		return fmt.Errorf("serializing unsigned payload: %s", err)
+	}
+
+	if m.Signature, err = signer.Sign(buf.Bytes()); err != nil {
+		return fmt.Errorf("generating signature: %s", err)
+	}
+
 	return nil
 }
 
-func (m *messageSessionRequest) serialize(b *bytes.Buffer) error {
-	binary.Write(b, binary.BigEndian, m.SessionNumber)
-	binary.Write(b, binary.BigEndian, m.HostIdentifier)
-	binary.Write(b, binary.BigEndian, uint16(len(m.CipherSuites)))
+func (m *messageSessionRequest) verifySignature(verifier Verifier) (err error) {
+	buf := &bytes.Buffer{}
 
-	for _, cipherSuite := range m.CipherSuites {
-		binary.Write(b, binary.BigEndian, cipherSuite)
+	if err = m.serializeUnsigned(buf); err != nil {
+		return fmt.Errorf("serializing unsigned payload: %s", err)
 	}
 
-	binary.Write(b, binary.BigEndian, uint16(len(m.EllipticCurves)))
-
-	for _, ellipticCurve := range m.EllipticCurves {
-		binary.Write(b, binary.BigEndian, ellipticCurve)
+	if err = verifier.Verify(buf.Bytes(), m.Signature); err != nil {
+		return fmt.Errorf("verifying signature: %s", err)
 	}
 
-	binary.Write(b, binary.BigEndian, uint16(len(m.Signature)))
-	b.Write(m.Signature)
+	return nil
+}
+
+func (m *messageSessionRequest) serializeUnsigned(b io.Writer) (err error) {
+	if err = binary.Write(b, binary.BigEndian, m.SessionNumber); err != nil {
+		return fmt.Errorf("writing session number: %s", err)
+	}
+
+	if err = binary.Write(b, binary.BigEndian, m.HostIdentifier); err != nil {
+		return fmt.Errorf("writing host identifier: %s", err)
+	}
+
+	if err = binary.Write(b, binary.BigEndian, uint16(len(m.CipherSuites))); err != nil {
+		return fmt.Errorf("writing cipher suites size: %s", err)
+	}
+
+	for i, cipherSuite := range m.CipherSuites {
+		if err = binary.Write(b, binary.BigEndian, cipherSuite); err != nil {
+			return fmt.Errorf("writing cipher suite %d (out of %d): %s", i, len(m.CipherSuites), err)
+		}
+	}
+
+	if err = binary.Write(b, binary.BigEndian, uint16(len(m.EllipticCurves))); err != nil {
+		return fmt.Errorf("writing elliptic curves size: %s", err)
+	}
+
+	for i, ellipticCurve := range m.EllipticCurves {
+		if err = binary.Write(b, binary.BigEndian, ellipticCurve); err != nil {
+			return fmt.Errorf("writing elliptic curve %d (out of %d): %s", i, len(m.EllipticCurves), err)
+		}
+	}
+
+	return nil
+}
+
+func (m *messageSessionRequest) serialize(b io.Writer) (err error) {
+	if err = m.serializeUnsigned(b); err != nil {
+		return err
+	}
+
+	if err = binary.Write(b, binary.BigEndian, uint16(len(m.Signature))); err != nil {
+		return fmt.Errorf("writing signature size: %s", err)
+	}
+
+	if err = binary.Write(b, binary.BigEndian, m.Signature); err != nil {
+		return fmt.Errorf("writing signature: %s", err)
+	}
 
 	return nil
 }
@@ -397,7 +447,7 @@ func (m *messageSession) computeSignature() error {
 	return nil
 }
 
-func (m *messageSession) serialize(b *bytes.Buffer) error {
+func (m *messageSession) serialize(b io.Writer) error {
 	binary.Write(b, binary.BigEndian, m.SessionNumber)
 	binary.Write(b, binary.BigEndian, m.HostIdentifier)
 	binary.Write(b, binary.BigEndian, m.CipherSuite)
@@ -490,7 +540,7 @@ type messageData struct {
 	Ciphertext     []byte
 }
 
-func (m *messageData) serialize(b *bytes.Buffer) (err error) {
+func (m *messageData) serialize(b io.Writer) (err error) {
 	if err = binary.Write(b, binary.BigEndian, m.SequenceNumber); err != nil {
 		return fmt.Errorf("writing sequence number: %s", err)
 	}

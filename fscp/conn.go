@@ -84,7 +84,7 @@ func (c *Conn) closeWithError(err error) error {
 }
 
 func (c *Conn) warning(err error) {
-	c.debugPrintf(err.Error())
+	c.debugPrintf("Warning: %s\n", err.Error())
 }
 
 // LocalAddr returns the local address of the connection.
@@ -132,6 +132,8 @@ func (c *Conn) sendHelloRequest(uniqueNumber UniqueNumber) (err error) {
 		UniqueNumber: uniqueNumber,
 	}
 
+	c.debugPrintf("Sending %s.\n", msg)
+
 	if err = c.writeMessage(MessageTypeHelloRequest, msg); err != nil {
 		return err
 	}
@@ -144,6 +146,8 @@ func (c *Conn) sendHelloResponse(uniqueNumber UniqueNumber) error {
 		UniqueNumber: uniqueNumber,
 	}
 
+	c.debugPrintf("Sending %s.\n", msg)
+
 	return c.writeMessage(MessageTypeHelloResponse, msg)
 }
 
@@ -151,6 +155,8 @@ func (c *Conn) sendPresentation() error {
 	msg := &messagePresentation{
 		Certificate: c.security.Certificate,
 	}
+
+	c.debugPrintf("Sending %s.\n", msg)
 
 	return c.writeMessage(MessageTypePresentation, msg)
 }
@@ -163,9 +169,11 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 		SessionNumber:  sessionNumber,
 	}
 
-	if err := msg.computeSignature(); err != nil {
+	if err := msg.computeSignature(c.security); err != nil {
 		return fmt.Errorf("failed to forge session request message: %s", err)
 	}
+
+	c.debugPrintf("Sending %s request.\n", msg)
 
 	return c.writeMessage(MessageTypeSessionRequest, msg)
 }
@@ -241,9 +249,12 @@ func (c *Conn) dispatchLoop() {
 
 					//TODO: Check if the certificate is acceptable.
 
-					// If we receive a presentation message, store its
-					// certificate only if we don't have one already.
-					c.security.RemoteCertificate = imsg.Certificate
+					if imsg.Certificate != nil {
+						// If we receive a presentation message, store its
+						// certificate only if we don't have one already.
+						c.security.RemoteCertificate = imsg.Certificate
+						c.debugPrintf("Stored certificate (%s) for remote host.\n", imsg.Certificate.Subject)
+					}
 
 					if err := c.sendSessionRequest(c.currentSessionNumber); err != nil {
 						c.closeWithError(err)
@@ -252,6 +263,12 @@ func (c *Conn) dispatchLoop() {
 				}
 			case *messageSessionRequest:
 				c.debugPrintf("Received %s.\n", imsg)
+
+				if err := imsg.verifySignature(c.security); err != nil {
+					c.warning(fmt.Errorf("session request signature verification failed: %s", err))
+					continue
+				}
+
 				//TODO: Filter out some hosts based on a callback or other client logic.
 
 				cipherSuite, err := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)

@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const envFreelanFSCPIntegrationTestRemoteHost = `FREELAN_FSCP_INTEGRATION_TEST_REMOTE_HOST`
+const (
+	envFreelanFSCPIntegrationTestRemoteHost = `FREELAN_FSCP_INTEGRATION_TEST_REMOTE_HOST`
+	envFreelanFSCPIntegrationTestPassphrase = `FREELAN_FSCP_INTEGRATION_TEST_PASSPHRASE`
+)
 
 func TestRealConnection(t *testing.T) {
 	remoteHost, ok := os.LookupEnv(envFreelanFSCPIntegrationTestRemoteHost)
@@ -18,7 +21,7 @@ func TestRealConnection(t *testing.T) {
 		t.Skipf("%s was not set", envFreelanFSCPIntegrationTestRemoteHost)
 	}
 
-	addr, err := ResolveFSCPAddr(Network, remoteHost)
+	remoteAddr, err := ResolveFSCPAddr(Network, remoteHost)
 
 	if err != nil {
 		t.Fatalf("expected no error: %s", err)
@@ -27,7 +30,19 @@ func TestRealConnection(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	client, err := Listen(Network, ":5001")
+	addr, err := ResolveFSCPAddr(Network, ":5001")
+
+	if err != nil {
+		t.Fatalf("expected no error: %s", err)
+	}
+
+	security := &ClientSecurity{}
+
+	if passphrase, ok := os.LookupEnv(envFreelanFSCPIntegrationTestRemoteHost); ok {
+		security.SetPresharedKeyFromPassphrase(passphrase, DefaultPresharedKeySalt, DefaultPresharedKeyIterations)
+	}
+
+	client, err := ListenFSCP(Network, addr, security)
 
 	if err != nil {
 		t.Fatalf("expected no error: %s", err)
@@ -41,10 +56,10 @@ func TestRealConnection(t *testing.T) {
 		client.Close()
 	}()
 
-	clientConn, err := client.(*Client).Connect(ctx, addr)
+	clientConn, err := client.Connect(ctx, remoteAddr)
 
 	if err != nil {
-		t.Fatalf("client connecting to %s: %s", addr, err)
+		t.Fatalf("client connecting to %s: %s", remoteAddr, err)
 	}
 
 	defer clientConn.Close()

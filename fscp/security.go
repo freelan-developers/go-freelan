@@ -4,10 +4,18 @@
 package fscp
 
 import (
+	"crypto"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // CipherSuite represents a cipher suite.
@@ -105,13 +113,38 @@ func (s EllipticCurveSlice) String() string {
 	return strings.Join(strs, ",")
 }
 
+// A Signer signs data.
+type Signer interface {
+	Sign(cleartext []byte) ([]byte, error)
+}
+
+// A Verifier verifies signed data.
+type Verifier interface {
+	Verify(cleartext []byte, signature []byte) error
+}
+
 // ClientSecurity contains all the security settings of a client.
 type ClientSecurity struct {
 	Certificate       *x509.Certificate
 	PrivateKey        *rsa.PrivateKey
+	PresharedKey      []byte
 	RemoteCertificate *x509.Certificate
 	CipherSuites      CipherSuiteSlice
 	EllipticCurves    EllipticCurveSlice
+}
+
+// DefaultPresharedKeyPassphrase is the default preshared key passphrase.
+const DefaultPresharedKeyPassphrase = ""
+
+// DefaultPresharedKeySalt is the default preshared key salt.
+var DefaultPresharedKeySalt = []byte("freelan")
+
+// DefaultPresharedKeyIterations is the default preshared key iterations.
+const DefaultPresharedKeyIterations = 2000
+
+// SetPresharedKeyFromPassphrase set the preshared key from a passphrase and salt/iterations parameters.
+func (s *ClientSecurity) SetPresharedKeyFromPassphrase(passphrase string, salt []byte, iterations int) {
+	s.PresharedKey = pbkdf2.Key([]byte(passphrase), salt, iterations, sha256.Size, sha256.New)
 }
 
 // Validate the security.
@@ -120,6 +153,9 @@ func (s *ClientSecurity) Validate() error {
 		if s.PrivateKey == nil {
 			return errors.New("a certificate was provided but not its associated private key")
 		}
+	} else if s.PresharedKey == nil {
+		// If no certificate and no preshared key were set, we set the default preshared key.
+		s.SetPresharedKeyFromPassphrase(DefaultPresharedKeyPassphrase, DefaultPresharedKeySalt, DefaultPresharedKeyIterations)
 	}
 
 	if len(s.supportedCipherSuites()) == 0 {
@@ -147,4 +183,32 @@ func (s *ClientSecurity) supportedEllipticCurves() EllipticCurveSlice {
 	}
 
 	return s.EllipticCurves
+}
+
+// Sign a message.
+func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
+	if s.Certificate != nil {
+		hashed := sha256.New().Sum(cleartext)
+
+		return rsa.SignPKCS1v15(rand.Reader, s.PrivateKey, crypto.SHA256, hashed)
+	}
+
+	return hmac.New(sha256.New, s.PresharedKey).Sum(cleartext), nil
+}
+
+// Verify a signature.
+func (s ClientSecurity) Verify(cleartext []byte, signature []byte) error {
+	if s.Certificate != nil {
+		hashed := sha256.New().Sum(cleartext)
+
+		return rsa.VerifyPKCS1v15(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed, signature)
+	}
+
+	reference := hmac.New(sha256.New, s.PresharedKey).Sum(cleartext)
+
+	if !hmac.Equal(reference, signature) {
+		return fmt.Errorf("HMAC signature does not match: expected %s but got %s", hex.EncodeToString(reference), hex.EncodeToString(signature))
+	}
+
+	return nil
 }
