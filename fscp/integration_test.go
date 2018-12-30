@@ -38,7 +38,7 @@ func TestRealConnection(t *testing.T) {
 
 	security := &ClientSecurity{}
 
-	if passphrase, ok := os.LookupEnv(envFreelanFSCPIntegrationTestRemoteHost); ok {
+	if passphrase, ok := os.LookupEnv(envFreelanFSCPIntegrationTestPassphrase); ok {
 		security.SetPresharedKeyFromPassphrase(passphrase, DefaultPresharedKeySalt, DefaultPresharedKeyIterations)
 	}
 

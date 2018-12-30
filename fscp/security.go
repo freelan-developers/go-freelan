@@ -188,23 +188,32 @@ func (s *ClientSecurity) supportedEllipticCurves() EllipticCurveSlice {
 // Sign a message.
 func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
 	if s.Certificate != nil {
-		hashed := sha256.New().Sum(cleartext)
+		hash := sha256.New()
+		hash.Write(cleartext)
+		hashed := hash.Sum(nil)
 
 		return rsa.SignPKCS1v15(rand.Reader, s.PrivateKey, crypto.SHA256, hashed)
 	}
 
-	return hmac.New(sha256.New, s.PresharedKey).Sum(cleartext), nil
+	hash := hmac.New(sha256.New, s.PresharedKey)
+	hash.Write(cleartext)
+
+	return hash.Sum(nil), nil
 }
 
 // Verify a signature.
 func (s ClientSecurity) Verify(cleartext []byte, signature []byte) error {
 	if s.Certificate != nil {
-		hashed := sha256.New().Sum(cleartext)
+		hash := sha256.New()
+		hash.Write(cleartext)
+		hashed := hash.Sum(nil)
 
 		return rsa.VerifyPKCS1v15(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed, signature)
 	}
 
-	reference := hmac.New(sha256.New, s.PresharedKey).Sum(cleartext)
+	hash := hmac.New(sha256.New, s.PresharedKey)
+	hash.Write(cleartext)
+	reference := hash.Sum(nil)
 
 	if !hmac.Equal(reference, signature) {
 		return fmt.Errorf("HMAC signature does not match: expected %s but got %s", hex.EncodeToString(reference), hex.EncodeToString(signature))
