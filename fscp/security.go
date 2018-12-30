@@ -187,12 +187,10 @@ func (s *ClientSecurity) supportedEllipticCurves() EllipticCurveSlice {
 
 // Sign a message.
 func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
-	if s.Certificate != nil {
-		hash := sha256.New()
-		hash.Write(cleartext)
-		hashed := hash.Sum(nil)
+	if s.PrivateKey != nil {
+		hashed := sha256.Sum256(cleartext)
 
-		return rsa.SignPKCS1v15(rand.Reader, s.PrivateKey, crypto.SHA256, hashed)
+		return rsa.SignPKCS1v15(rand.Reader, s.PrivateKey, crypto.SHA256, hashed[:])
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
@@ -203,12 +201,10 @@ func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
 
 // Verify a signature.
 func (s ClientSecurity) Verify(cleartext []byte, signature []byte) error {
-	if s.Certificate != nil {
-		hash := sha256.New()
-		hash.Write(cleartext)
-		hashed := hash.Sum(nil)
+	if s.RemoteCertificate != nil {
+		hashed := sha256.Sum256(cleartext)
 
-		return rsa.VerifyPKCS1v15(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed, signature)
+		return rsa.VerifyPKCS1v15(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed[:], signature)
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
