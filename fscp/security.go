@@ -190,7 +190,7 @@ func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
 	if s.PrivateKey != nil {
 		hashed := sha256.Sum256(cleartext)
 
-		return rsa.SignPKCS1v15(rand.Reader, s.PrivateKey, crypto.SHA256, hashed[:])
+		return rsa.SignPSS(rand.Reader, s.PrivateKey, crypto.SHA256, hashed[:], nil)
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
@@ -204,7 +204,7 @@ func (s ClientSecurity) Verify(cleartext []byte, signature []byte) error {
 	if s.RemoteCertificate != nil {
 		hashed := sha256.Sum256(cleartext)
 
-		return rsa.VerifyPKCS1v15(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed[:], signature)
+		return rsa.VerifyPSS(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed[:], signature, nil)
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
