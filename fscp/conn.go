@@ -2,6 +2,8 @@ package fscp
 
 import (
 	"bytes"
+	"crypto/elliptic"
+	crand "crypto/rand"
 	"fmt"
 	"io"
 	"math/rand"
@@ -182,11 +184,30 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 }
 
 func (c *Conn) sendSession(sessionNumber SessionNumber) error {
+	// TODO: Make this parameterizable.
+	curve := elliptic.P521()
+	d, x, y, err := elliptic.GenerateKey(curve, crand.Reader)
+
+	if err != nil {
+		return fmt.Errorf("failed to generate ECDHE key: %s", err)
+	}
+
+	privateKey := d
+	// TODO: This is how you would compute the shared key: with x & y being the REMOTE keys.
+	//publicKey, _ := curve.ScalarMult(x, y, d)
+	publicKey := elliptic.Marshal(curve, x, y)
+
+	// TODO: Store this.
+	if privateKey == nil {
+		panic(true)
+	}
+
 	msg := &messageSession{
 		CipherSuite:    c.currentOutgoingCipherSuite,
 		EllipticCurve:  c.currentOutgoingEllipticCurve,
 		HostIdentifier: c.hostIdentifier,
 		SessionNumber:  sessionNumber,
+		PublicKey:      publicKey,
 	}
 
 	if err := msg.computeSignature(c.security); err != nil {

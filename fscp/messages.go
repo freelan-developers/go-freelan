@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 )
@@ -581,7 +582,7 @@ func (m *messageSession) deserialize(b lenReader) (err error) {
 }
 
 func (m *messageSession) String() string {
-	return fmt.Sprintf("SESSION [sid:%08x,hid:%08x,cipher:%s,curve:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve)
+	return fmt.Sprintf("SESSION [sid:%08x,hid:%08x,cipher:%s,curve:%s,public-key:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve, hex.EncodeToString(m.PublicKey))
 }
 
 // A SequenceNumber is a 4 bytes sequence number.
