@@ -372,7 +372,7 @@ func (m *messageSessionRequest) serialize(b io.Writer) (err error) {
 }
 
 func (m *messageSessionRequest) serializationSize() int {
-	return 4 + 4 + 2 + len(m.CipherSuites) + 2 + len(m.EllipticCurves) + 2 + len(m.Signature)
+	return 4 + len(m.HostIdentifier) + 2 + len(m.CipherSuites) + 2 + len(m.EllipticCurves) + 2 + len(m.Signature)
 }
 
 func (m *messageSessionRequest) deserialize(b lenReader) (err error) {
@@ -521,7 +521,7 @@ func (m *messageSession) serialize(b io.Writer) error {
 }
 
 func (m *messageSession) serializationSize() int {
-	return 4 + 4 + 2 + 2 + 2 + len(m.PublicKey) + 2 + len(m.Signature)
+	return 4 + len(m.HostIdentifier) + 2 + 2 + 2 + len(m.PublicKey) + 2 + len(m.Signature)
 }
 
 func (m *messageSession) deserialize(b lenReader) (err error) {
