@@ -17,15 +17,18 @@ type messageFrame struct {
 
 // Conn is a FSCP connection.
 type Conn struct {
-	localAddr            *Addr
-	remoteAddr           *Addr
-	writer               io.Writer
-	hostIdentifier       HostIdentifier
-	remoteHostIdentifier *HostIdentifier
-	security             ClientSecurity
-	currentSessionNumber SessionNumber
-	currentCipherSuite   CipherSuite
-	currentEllipticCurve EllipticCurve
+	localAddr                    *Addr
+	remoteAddr                   *Addr
+	writer                       io.Writer
+	hostIdentifier               HostIdentifier
+	remoteHostIdentifier         *HostIdentifier
+	security                     ClientSecurity
+	currentOutgoingSessionNumber SessionNumber
+	currentOutgoingCipherSuite   CipherSuite
+	currentOutgoingEllipticCurve EllipticCurve
+	currentIncomingSessionNumber SessionNumber
+	currentIncomingCipherSuite   CipherSuite
+	currentIncomingEllipticCurve EllipticCurve
 
 	incoming   chan messageFrame
 	connected  chan struct{}
@@ -180,15 +183,17 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 
 func (c *Conn) sendSession(sessionNumber SessionNumber) error {
 	msg := &messageSession{
-		CipherSuite:    c.currentCipherSuite,
-		EllipticCurve:  c.currentEllipticCurve,
+		CipherSuite:    c.currentOutgoingCipherSuite,
+		EllipticCurve:  c.currentOutgoingEllipticCurve,
 		HostIdentifier: c.hostIdentifier,
 		SessionNumber:  sessionNumber,
 	}
 
-	if err := msg.computeSignature(); err != nil {
+	if err := msg.computeSignature(c.security); err != nil {
 		return fmt.Errorf("failed to forge session message: %s", err)
 	}
+
+	c.debugPrintf("Sending %s.\n", msg)
 
 	return c.writeMessage(MessageTypeSession, msg)
 }
@@ -256,7 +261,7 @@ func (c *Conn) dispatchLoop() {
 						c.debugPrintf("Stored certificate (%s) for remote host.\n", imsg.Certificate.Subject)
 					}
 
-					if err := c.sendSessionRequest(c.currentSessionNumber); err != nil {
+					if err := c.sendSessionRequest(c.currentIncomingSessionNumber); err != nil {
 						c.closeWithError(err)
 						return
 					}
@@ -285,13 +290,26 @@ func (c *Conn) dispatchLoop() {
 					continue
 				}
 
-				if c.currentCipherSuite != NullCipherSuite && cipherSuite != c.currentCipherSuite {
-					c.warning(fmt.Errorf("ignoring session request: refusing to change cipher suite from %s to %s", c.currentCipherSuite, cipherSuite))
+				if c.currentOutgoingCipherSuite != NullCipherSuite && cipherSuite != c.currentOutgoingCipherSuite {
+					c.warning(fmt.Errorf("ignoring session request: refusing to change cipher suite from %s to %s", c.currentOutgoingCipherSuite, cipherSuite))
 					continue
 				}
 
+				if c.currentOutgoingEllipticCurve != NullEllipticCurve && ellipticCurve != c.currentOutgoingEllipticCurve {
+					c.warning(fmt.Errorf("ignoring session request: refusing to change elliptic curve from %s to %s", c.currentOutgoingEllipticCurve, ellipticCurve))
+					continue
+				}
+
+				c.currentOutgoingCipherSuite = cipherSuite
+				c.currentOutgoingEllipticCurve = ellipticCurve
+
 				c.debugPrintf("Selected cipher suite: %s.\n", cipherSuite)
 				c.debugPrintf("Selected elliptic curve: %s.\n", ellipticCurve)
+
+				if err := c.sendSession(c.currentOutgoingSessionNumber); err != nil {
+					c.closeWithError(err)
+					return
+				}
 			case *messageSession:
 				c.debugPrintf("Received %s.\n", imsg)
 			default:

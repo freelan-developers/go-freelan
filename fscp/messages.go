@@ -442,25 +442,79 @@ type messageSession struct {
 	Signature      []byte
 }
 
-func (m *messageSession) computeSignature() error {
-	// TODO: Implement.
+func (m *messageSession) computeSignature(signer Signer) (err error) {
+	buf := &bytes.Buffer{}
+
+	if err = m.serializeUnsigned(buf); err != nil {
+		return fmt.Errorf("serializing unsigned payload: %s", err)
+	}
+
+	if m.Signature, err = signer.Sign(buf.Bytes()); err != nil {
+		return fmt.Errorf("generating signature: %s", err)
+	}
+
+	return nil
+}
+
+func (m *messageSession) verifySignature(verifier Verifier) (err error) {
+	buf := &bytes.Buffer{}
+
+	if err = m.serializeUnsigned(buf); err != nil {
+		return fmt.Errorf("serializing unsigned payload: %s", err)
+	}
+
+	if err = verifier.Verify(buf.Bytes(), m.Signature); err != nil {
+		return fmt.Errorf("verifying signature: %s", err)
+	}
+
+	return nil
+}
+
+func (m *messageSession) serializeUnsigned(b io.Writer) error {
+	if err := binary.Write(b, binary.BigEndian, m.SessionNumber); err != nil {
+		return fmt.Errorf("writing session number: %s", err)
+	}
+
+	if err := binary.Write(b, binary.BigEndian, m.HostIdentifier); err != nil {
+		return fmt.Errorf("writing host identifier: %s", err)
+	}
+
+	if err := binary.Write(b, binary.BigEndian, m.CipherSuite); err != nil {
+		return fmt.Errorf("writing cipher suite: %s", err)
+	}
+
+	if err := binary.Write(b, binary.BigEndian, m.EllipticCurve); err != nil {
+		return fmt.Errorf("writing elliptic curve: %s", err)
+	}
+
+	// These two bytes are always zero.
+	if err := binary.Write(b, binary.BigEndian, []byte{0x00, 0x00}); err != nil {
+		return fmt.Errorf("writing null bytes: %s", err)
+	}
+
+	if err := binary.Write(b, binary.BigEndian, uint16(len(m.PublicKey))); err != nil {
+		return fmt.Errorf("writing public key length: %s", err)
+	}
+
+	if err := binary.Write(b, binary.BigEndian, m.PublicKey); err != nil {
+		return fmt.Errorf("writing public key: %s", err)
+	}
+
 	return nil
 }
 
 func (m *messageSession) serialize(b io.Writer) error {
-	binary.Write(b, binary.BigEndian, m.SessionNumber)
-	binary.Write(b, binary.BigEndian, m.HostIdentifier)
-	binary.Write(b, binary.BigEndian, m.CipherSuite)
-	binary.Write(b, binary.BigEndian, m.EllipticCurve)
+	if err := m.serializeUnsigned(b); err != nil {
+		return err
+	}
 
-	// These two bytes are always zero.
-	b.Write([]byte{0x00, 0x00})
+	if err := binary.Write(b, binary.BigEndian, uint16(len(m.Signature))); err != nil {
+		return fmt.Errorf("writing signature length: %s", err)
+	}
 
-	binary.Write(b, binary.BigEndian, uint16(len(m.PublicKey)))
-	b.Write(m.PublicKey)
-
-	binary.Write(b, binary.BigEndian, uint16(len(m.Signature)))
-	b.Write(m.Signature)
+	if err := binary.Write(b, binary.BigEndian, m.Signature); err != nil {
+		return fmt.Errorf("writing signature: %s", err)
+	}
 
 	return nil
 }
