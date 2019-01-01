@@ -127,6 +127,10 @@ func (c *Conn) writeMessage(messageType MessageType, message serializable) (err 
 		return err
 	}
 
+	if buf.Len() != message.serializationSize()+4 {
+		panic(fmt.Errorf("expected buffer of size %d but was %d byte(s) long", message.serializationSize()+4, buf.Len()))
+	}
+
 	_, err = buf.WriteTo(c.writer)
 
 	return
