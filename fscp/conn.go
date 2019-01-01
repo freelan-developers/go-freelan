@@ -19,10 +19,10 @@ type messageFrame struct {
 
 // Conn is a FSCP connection.
 type Conn struct {
+	writer                       io.Writer
 	localAddr                    *Addr
 	remoteAddr                   *Addr
-	writer                       io.Writer
-	hostIdentifier               HostIdentifier
+	localHostIdentifier          HostIdentifier
 	remoteHostIdentifier         *HostIdentifier
 	security                     ClientSecurity
 	currentOutgoingSessionNumber SessionNumber
@@ -41,11 +41,11 @@ type Conn struct {
 
 func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, hostIdentifier HostIdentifier, security ClientSecurity) *Conn {
 	conn := &Conn{
-		localAddr:      localAddr,
-		remoteAddr:     remoteAddr,
-		writer:         w,
-		hostIdentifier: hostIdentifier,
-		security:       security,
+		writer:              w,
+		localAddr:           localAddr,
+		remoteAddr:          remoteAddr,
+		localHostIdentifier: hostIdentifier,
+		security:            security,
 
 		incoming:  make(chan messageFrame, 10),
 		connected: make(chan struct{}),
@@ -170,7 +170,7 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 	msg := &messageSessionRequest{
 		CipherSuites:   c.security.supportedCipherSuites(),
 		EllipticCurves: c.security.supportedEllipticCurves(),
-		HostIdentifier: c.hostIdentifier,
+		HostIdentifier: c.localHostIdentifier,
 		SessionNumber:  sessionNumber,
 	}
 
@@ -205,7 +205,7 @@ func (c *Conn) sendSession(sessionNumber SessionNumber) error {
 	msg := &messageSession{
 		CipherSuite:    c.currentOutgoingCipherSuite,
 		EllipticCurve:  c.currentOutgoingEllipticCurve,
-		HostIdentifier: c.hostIdentifier,
+		HostIdentifier: c.localHostIdentifier,
 		SessionNumber:  sessionNumber,
 		PublicKey:      publicKey,
 	}
