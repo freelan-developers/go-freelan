@@ -279,11 +279,23 @@ func (c *Conn) dispatchLoop() {
 
 					//TODO: Check if the certificate is acceptable.
 
-					if imsg.Certificate != nil {
-						// If we receive a presentation message, store its
-						// certificate only if we don't have one already.
-						c.security.RemoteCertificate = imsg.Certificate
-						c.debugPrintf("Stored certificate (%s) for remote host.\n", imsg.Certificate.Subject)
+					if c.security.RemoteClientSecurity == nil {
+						remoteClientSecurity := &RemoteClientSecurity{}
+
+						if imsg.Certificate != nil {
+							// If we receive a presentation message, store its
+							// certificate only if we don't have one already.
+							remoteClientSecurity.Certificate = imsg.Certificate
+							c.debugPrintf("Stored certificate (%s) for remote host.\n", imsg.Certificate.Subject)
+						} else {
+							c.debugPrintf("Using pre-shared key for remote host.\n")
+						}
+
+						c.security.RemoteClientSecurity = remoteClientSecurity
+					} else {
+						c.debugPrintf("Ignoring repeated presentation for remote host.\n")
+
+						continue
 					}
 
 					if err := c.sendSessionRequest(c.currentIncomingSessionNumber); err != nil {

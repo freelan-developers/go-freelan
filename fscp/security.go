@@ -170,12 +170,18 @@ func GenerateLocalCertificate() (*rsa.PrivateKey, *x509.Certificate, error) {
 
 // ClientSecurity contains all the security settings of a client.
 type ClientSecurity struct {
-	Certificate       *x509.Certificate
-	PrivateKey        *rsa.PrivateKey
-	PresharedKey      []byte
-	RemoteCertificate *x509.Certificate
-	CipherSuites      CipherSuiteSlice
-	EllipticCurves    EllipticCurveSlice
+	Certificate    *x509.Certificate
+	PrivateKey     *rsa.PrivateKey
+	PresharedKey   []byte
+	CipherSuites   CipherSuiteSlice
+	EllipticCurves EllipticCurveSlice
+
+	RemoteClientSecurity *RemoteClientSecurity
+}
+
+// RemoteClientSecurity represents the remote client security.
+type RemoteClientSecurity struct {
+	Certificate *x509.Certificate
 }
 
 // DefaultPresharedKeyPassphrase is the default preshared key passphrase.
@@ -254,10 +260,14 @@ func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
 
 // Verify a signature.
 func (s ClientSecurity) Verify(cleartext []byte, signature []byte) error {
-	if s.RemoteCertificate != nil {
+	if s.RemoteClientSecurity == nil {
+		return errors.New("cannot verify signature as no remote client security information is available")
+	}
+
+	if s.RemoteClientSecurity.Certificate != nil {
 		hashed := sha256.Sum256(cleartext)
 
-		return rsa.VerifyPSS(s.RemoteCertificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed[:], signature, nil)
+		return rsa.VerifyPSS(s.RemoteClientSecurity.Certificate.PublicKey.(*rsa.PublicKey), crypto.SHA256, hashed[:], signature, nil)
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
