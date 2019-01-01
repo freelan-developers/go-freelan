@@ -237,7 +237,13 @@ func (s ClientSecurity) Sign(cleartext []byte) ([]byte, error) {
 	if s.PrivateKey != nil {
 		hashed := sha256.Sum256(cleartext)
 
-		return rsa.SignPSS(rand.Reader, s.PrivateKey, crypto.SHA256, hashed[:], nil)
+		// This is necessary for interoperability with the legacy freelan
+		// implementation.
+		options := &rsa.PSSOptions{
+			SaltLength: sha256.Size,
+		}
+
+		return rsa.SignPSS(rand.Reader, s.PrivateKey, crypto.SHA256, hashed[:], options)
 	}
 
 	hash := hmac.New(sha256.New, s.PresharedKey)
