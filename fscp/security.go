@@ -10,10 +10,14 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
+	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -123,6 +127,47 @@ type Verifier interface {
 	Verify(cleartext []byte, signature []byte) error
 }
 
+// GenerateLocalCertificate generates a default local X509 certificate for the
+// current host.
+func GenerateLocalCertificate() (*rsa.PrivateKey, *x509.Certificate, error) {
+	hostname, err := os.Hostname()
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not determine local hostname: %s", err)
+	}
+
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(1653),
+		Subject: pkix.Name{
+			CommonName: hostname,
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate RSA private key: %s", err)
+	}
+
+	pub := &priv.PublicKey
+
+	raw, err := x509.CreateCertificate(rand.Reader, ca, ca, pub, priv)
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create X509 certificate: %s", err)
+	}
+
+	cert, err := x509.ParseCertificate(raw)
+
+	return priv, cert, err
+}
+
 // ClientSecurity contains all the security settings of a client.
 type ClientSecurity struct {
 	Certificate       *x509.Certificate
@@ -148,14 +193,16 @@ func (s *ClientSecurity) SetPresharedKeyFromPassphrase(passphrase string, salt [
 }
 
 // Validate the security.
-func (s *ClientSecurity) Validate() error {
+func (s *ClientSecurity) Validate() (err error) {
 	if s.Certificate != nil {
 		if s.PrivateKey == nil {
 			return errors.New("a certificate was provided but not its associated private key")
 		}
 	} else if s.PresharedKey == nil {
-		// If no certificate and no preshared key were set, we set the default preshared key.
-		s.SetPresharedKeyFromPassphrase(DefaultPresharedKeyPassphrase, DefaultPresharedKeySalt, DefaultPresharedKeyIterations)
+		// If no certificate and no preshared key were set, we generate a temporary certificate.
+		if s.PrivateKey, s.Certificate, err = GenerateLocalCertificate(); err != nil {
+			return
+		}
 	}
 
 	if len(s.supportedCipherSuites()) == 0 {
