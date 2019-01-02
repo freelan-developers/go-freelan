@@ -2,8 +2,6 @@ package fscp
 
 import (
 	"bytes"
-	"crypto/elliptic"
-	crand "crypto/rand"
 	"fmt"
 	"io"
 	"math/rand"
@@ -19,18 +17,14 @@ type messageFrame struct {
 
 // Conn is a FSCP connection.
 type Conn struct {
-	writer                       io.Writer
-	localAddr                    *Addr
-	remoteAddr                   *Addr
-	localHostIdentifier          HostIdentifier
-	remoteHostIdentifier         *HostIdentifier
-	security                     ClientSecurity
-	currentOutgoingSessionNumber SessionNumber
-	currentOutgoingCipherSuite   CipherSuite
-	currentOutgoingEllipticCurve EllipticCurve
-	currentIncomingSessionNumber SessionNumber
-	currentIncomingCipherSuite   CipherSuite
-	currentIncomingEllipticCurve EllipticCurve
+	writer               io.Writer
+	localAddr            *Addr
+	remoteAddr           *Addr
+	localHostIdentifier  HostIdentifier
+	remoteHostIdentifier *HostIdentifier
+	security             ClientSecurity
+	session              *Session
+	nextSession          *Session
 
 	incoming   chan messageFrame
 	connected  chan struct{}
@@ -187,31 +181,13 @@ func (c *Conn) sendSessionRequest(sessionNumber SessionNumber) error {
 	return c.writeMessage(MessageTypeSessionRequest, msg)
 }
 
-func (c *Conn) sendSession(sessionNumber SessionNumber) error {
-	// TODO: Make this parameterizable.
-	curve := elliptic.P521()
-	d, x, y, err := elliptic.GenerateKey(curve, crand.Reader)
-
-	if err != nil {
-		return fmt.Errorf("failed to generate ECDHE key: %s", err)
-	}
-
-	privateKey := d
-	// TODO: This is how you would compute the shared key: with x & y being the REMOTE keys.
-	//publicKey, _ := curve.ScalarMult(x, y, d)
-	publicKey := elliptic.Marshal(curve, x, y)
-
-	// TODO: Store this.
-	if privateKey == nil {
-		panic(true)
-	}
-
+func (c *Conn) sendSession(session *Session) error {
 	msg := &messageSession{
-		CipherSuite:    c.currentOutgoingCipherSuite,
-		EllipticCurve:  c.currentOutgoingEllipticCurve,
+		CipherSuite:    session.CipherSuite,
+		EllipticCurve:  session.EllipticCurve,
 		HostIdentifier: c.localHostIdentifier,
-		SessionNumber:  sessionNumber,
-		PublicKey:      publicKey,
+		SessionNumber:  session.SessionNumber,
+		PublicKey:      session.PublicKey,
 	}
 
 	if err := msg.computeSignature(c.security); err != nil {
@@ -272,6 +248,7 @@ func (c *Conn) dispatchLoop() {
 						return
 					}
 				}
+
 			case *messagePresentation:
 				switch frame.messageType {
 				case MessageTypePresentation:
@@ -298,11 +275,19 @@ func (c *Conn) dispatchLoop() {
 						continue
 					}
 
-					if err := c.sendSessionRequest(c.currentIncomingSessionNumber); err != nil {
+					var sessionNumber SessionNumber = 1
+
+					// If we have an existing next session, use the next session number.
+					if c.nextSession != nil {
+						sessionNumber = c.nextSession.SessionNumber
+					}
+
+					if err := c.sendSessionRequest(sessionNumber); err != nil {
 						c.closeWithError(err)
 						return
 					}
 				}
+
 			case *messageSessionRequest:
 				c.debugPrintf("Received %s.\n", imsg)
 
@@ -313,42 +298,55 @@ func (c *Conn) dispatchLoop() {
 
 				//TODO: Filter out some hosts based on a callback or other client logic.
 
-				cipherSuite, err := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
+				if c.remoteHostIdentifier == nil {
+					c.remoteHostIdentifier = &imsg.HostIdentifier
+					c.debugPrintf("Setting remote host identifier: %s\n", imsg.HostIdentifier)
+				} else if imsg.HostIdentifier != *c.remoteHostIdentifier {
+					c.warning(fmt.Errorf("ignoring session request because host identifier does not match: expected %s but got %s", *c.remoteHostIdentifier, imsg.HostIdentifier))
+					continue
+				}
+
+				if c.session != nil && c.session.SessionNumber >= imsg.SessionNumber {
+					c.debugPrintf("Session request is for an oudated session (%d): resending current session (%d).\n", imsg.SessionNumber, c.session.SessionNumber)
+
+					// The session request is oudated: we resend the current session.
+					if err := c.sendSession(c.session); err != nil {
+						c.closeWithError(err)
+						return
+					}
+
+					continue
+				}
+
+				cipherSuite := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
+				ellipticCurve := c.security.supportedEllipticCurves().FindCommon(imsg.EllipticCurves)
+				session, err := NewSession(imsg.SessionNumber, cipherSuite, ellipticCurve)
 
 				if err != nil {
-					c.warning(fmt.Errorf("ignoring session request: %s", err))
+					c.warning(fmt.Errorf("failed to initialize new session: %s", err))
+
+					if err := c.sendSession(session); err != nil {
+						c.closeWithError(err)
+						return
+					}
+
 					continue
 				}
 
-				ellipticCurve, err := c.security.supportedEllipticCurves().FindCommon(imsg.EllipticCurves)
+				c.debugPrintf("Session number: %d.\n", session.SessionNumber)
+				c.debugPrintf("Selected cipher suite: %s.\n", session.CipherSuite)
+				c.debugPrintf("Selected elliptic curve: %s.\n", session.EllipticCurve)
 
-				if err != nil {
-					c.warning(fmt.Errorf("ignoring session request: %s", err))
-					continue
-				}
+				c.nextSession = session
 
-				if c.currentOutgoingCipherSuite != NullCipherSuite && cipherSuite != c.currentOutgoingCipherSuite {
-					c.warning(fmt.Errorf("ignoring session request: refusing to change cipher suite from %s to %s", c.currentOutgoingCipherSuite, cipherSuite))
-					continue
-				}
-
-				if c.currentOutgoingEllipticCurve != NullEllipticCurve && ellipticCurve != c.currentOutgoingEllipticCurve {
-					c.warning(fmt.Errorf("ignoring session request: refusing to change elliptic curve from %s to %s", c.currentOutgoingEllipticCurve, ellipticCurve))
-					continue
-				}
-
-				c.currentOutgoingCipherSuite = cipherSuite
-				c.currentOutgoingEllipticCurve = ellipticCurve
-
-				c.debugPrintf("Selected cipher suite: %s.\n", cipherSuite)
-				c.debugPrintf("Selected elliptic curve: %s.\n", ellipticCurve)
-
-				if err := c.sendSession(c.currentOutgoingSessionNumber); err != nil {
+				if err := c.sendSession(session); err != nil {
 					c.closeWithError(err)
 					return
 				}
+
 			case *messageSession:
 				c.debugPrintf("Received %s.\n", imsg)
+
 			default:
 				c.debugPrintf("Received %s.\n", frame.message)
 			}
@@ -356,8 +354,4 @@ func (c *Conn) dispatchLoop() {
 			return
 		}
 	}
-
-	//close(c.connected)
-
-	// TODO: Wait for the reply.
 }

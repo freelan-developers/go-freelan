@@ -276,6 +276,10 @@ type SessionNumber uint32
 // HostIdentifier represents a host identifier.
 type HostIdentifier [32]byte
 
+func (i HostIdentifier) String() string {
+	return hex.EncodeToString(i[:])
+}
+
 // GenerateHostIdentifier generates a new random host identifier.
 func GenerateHostIdentifier() (result HostIdentifier, err error) {
 	var n int
@@ -431,7 +435,7 @@ func (m *messageSessionRequest) deserialize(b lenReader) (err error) {
 }
 
 func (m *messageSessionRequest) String() string {
-	return fmt.Sprintf("SESSION_REQUEST [sid:%08x,hid:%08x,ciphers:%s,curves:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuites, m.EllipticCurves)
+	return fmt.Sprintf("SESSION_REQUEST [sid:%08x,hid:%s,ciphers:%s,curves:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuites, m.EllipticCurves)
 }
 
 type messageSession struct {
@@ -582,7 +586,7 @@ func (m *messageSession) deserialize(b lenReader) (err error) {
 }
 
 func (m *messageSession) String() string {
-	return fmt.Sprintf("SESSION [sid:%08x,hid:%08x,cipher:%s,curve:%s,public-key:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve, hex.EncodeToString(m.PublicKey))
+	return fmt.Sprintf("SESSION [sid:%08x,hid:%s,cipher:%s,curve:%s,public-key:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve, hex.EncodeToString(m.PublicKey))
 }
 
 // A SequenceNumber is a 4 bytes sequence number.

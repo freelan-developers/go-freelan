@@ -5,6 +5,7 @@ package fscp
 
 import (
 	"crypto"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -46,16 +47,16 @@ func DefaultCipherSuites() CipherSuiteSlice {
 }
 
 // FindCommon returns the first cipher suite that is found in both slices.
-func (s CipherSuiteSlice) FindCommon(others CipherSuiteSlice) (CipherSuite, error) {
+func (s CipherSuiteSlice) FindCommon(others CipherSuiteSlice) CipherSuite {
 	for _, value := range s {
 		for _, other := range others {
 			if value == other {
-				return value, nil
+				return value
 			}
 		}
 	}
 
-	return NullCipherSuite, errors.New("no acceptable cipher suite could be found")
+	return NullCipherSuite
 }
 
 func (s CipherSuiteSlice) String() string {
@@ -88,23 +89,34 @@ type EllipticCurveSlice []EllipticCurve
 // DefaultEllipticCurves returns the default elliptic curves.
 func DefaultEllipticCurves() EllipticCurveSlice {
 	return EllipticCurveSlice{
-		SECT571K1,
 		SECP384R1,
 		SECP521R1,
 	}
 }
 
+// Curve returns the associated elliptic curve.
+func (c EllipticCurve) Curve() elliptic.Curve {
+	switch c {
+	case SECP384R1:
+		return elliptic.P384()
+	case SECP521R1:
+		return elliptic.P521()
+	default:
+		return nil
+	}
+}
+
 // FindCommon returns the first elliptic curve that is found in both slices.
-func (s EllipticCurveSlice) FindCommon(others EllipticCurveSlice) (EllipticCurve, error) {
+func (s EllipticCurveSlice) FindCommon(others EllipticCurveSlice) EllipticCurve {
 	for _, value := range s {
 		for _, other := range others {
 			if value == other {
-				return value, nil
+				return value
 			}
 		}
 	}
 
-	return 0, errors.New("no acceptable elliptic curve could be found")
+	return NullEllipticCurve
 }
 
 func (s EllipticCurveSlice) String() string {

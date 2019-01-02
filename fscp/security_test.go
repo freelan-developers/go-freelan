@@ -15,32 +15,22 @@ func TestCipherSuiteSliceFindCommon(t *testing.T) {
 		CipherSuite(0xff),
 	}
 
-	value, err := a.FindCommon(b)
-
-	if err != nil {
-		t.Fatalf("no error was expected but got: %s", err)
-	}
-
+	value := a.FindCommon(b)
 	expected := ECDHERSAAES128GCMSHA256
 
 	if value != expected {
 		t.Errorf("expected %s but got %s", expected, value)
 	}
 
-	value, err = b.FindCommon(a)
-
-	if err != nil {
-		t.Fatalf("no error was expected but got: %s", err)
-	}
-
+	value = b.FindCommon(a)
 	expected = ECDHERSAAES256GCMSHA384
 
 	if value != expected {
 		t.Errorf("expected %s but got %s", expected, value)
 	}
 
-	if _, err = a.FindCommon(c); err == nil {
-		t.Fatalf("an error was expected")
+	if value = a.FindCommon(c); value != NullCipherSuite {
+		t.Fatalf("a null cipher suite was expected")
 	}
 }
 
@@ -57,31 +47,21 @@ func TestElliptiCurveSliceFindCommon(t *testing.T) {
 		SECP521R1,
 	}
 
-	value, err := a.FindCommon(b)
-
-	if err != nil {
-		t.Fatalf("no error was expected but got: %s", err)
-	}
-
+	value := a.FindCommon(b)
 	expected := SECT571K1
 
 	if value != expected {
 		t.Errorf("expected %s but got %s", expected, value)
 	}
 
-	value, err = b.FindCommon(a)
-
-	if err != nil {
-		t.Fatalf("no error was expected but got: %s", err)
-	}
-
+	value = b.FindCommon(a)
 	expected = SECP384R1
 
 	if value != expected {
 		t.Errorf("expected %s but got %s", expected, value)
 	}
 
-	if _, err = a.FindCommon(c); err == nil {
-		t.Fatalf("an error was expected")
+	if value = a.FindCommon(c); value != NullEllipticCurve {
+		t.Fatalf("a null elliptic curve was expected")
 	}
 }
