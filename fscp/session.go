@@ -1,10 +1,9 @@
 package fscp
 
 import (
-	"bytes"
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"encoding/pem"
 	"errors"
 	"fmt"
 )
@@ -15,9 +14,9 @@ type Session struct {
 	CipherSuite     CipherSuite
 	EllipticCurve   EllipticCurve
 	SequenceNumber  SequenceNumber
-	PublicKey       []byte
+	PublicKey       *ecdsa.PublicKey
 	PrivateKey      []byte
-	RemotePublicKey []byte
+	RemotePublicKey *ecdsa.PublicKey
 	Key             []byte
 }
 
@@ -43,12 +42,11 @@ func NewSession(sessionNumber SessionNumber, cipherSuite CipherSuite, ellipticCu
 		return nil, fmt.Errorf("failed to generate ECDHE key: %s", err)
 	}
 
-	block := &pem.Block{
-		Type: "PUBLIC KEY",
-		//FIXME: This should be ASN1 encoded.
-		Bytes: elliptic.Marshal(curve, x, y),
+	publicKey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
 	}
-	publicKey := pem.EncodeToMemory(block)
 
 	return &Session{
 		SessionNumber: sessionNumber,
@@ -60,9 +58,11 @@ func NewSession(sessionNumber SessionNumber, cipherSuite CipherSuite, ellipticCu
 }
 
 // SetRemotePublicKey computes the session key.
-func (s *Session) SetRemotePublicKey(publicKey []byte) error {
+func (s *Session) SetRemotePublicKey(publicKey *ecdsa.PublicKey) error {
 	if s.RemotePublicKey != nil {
-		if !bytes.Equal(s.RemotePublicKey, publicKey) {
+		if s.RemotePublicKey.Curve != publicKey.Curve ||
+			s.RemotePublicKey.X.Cmp(publicKey.X) != 0 ||
+			s.RemotePublicKey.Y.Cmp(publicKey.Y) != 0 {
 			return errors.New("the remote public key was set previously to a different value")
 		}
 
@@ -70,8 +70,7 @@ func (s *Session) SetRemotePublicKey(publicKey []byte) error {
 	}
 
 	curve := s.EllipticCurve.Curve()
-	x, y := elliptic.Unmarshal(curve, publicKey)
-	k, _ := curve.ScalarMult(x, y, s.PrivateKey)
+	k, _ := curve.ScalarMult(publicKey.X, publicKey.Y, s.PrivateKey)
 
 	s.RemotePublicKey = publicKey
 	s.Key = k.Bytes()

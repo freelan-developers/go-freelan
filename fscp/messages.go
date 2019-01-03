@@ -2,10 +2,13 @@ package fscp
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -443,7 +446,7 @@ type messageSession struct {
 	HostIdentifier HostIdentifier
 	CipherSuite    CipherSuite
 	EllipticCurve  EllipticCurve
-	PublicKey      []byte
+	PublicKey      *ecdsa.PublicKey
 	Signature      []byte
 }
 
@@ -497,11 +500,23 @@ func (m *messageSession) serializeUnsigned(b io.Writer) error {
 		return fmt.Errorf("writing null bytes: %s", err)
 	}
 
-	if err := binary.Write(b, binary.BigEndian, uint16(len(m.PublicKey))); err != nil {
+	key, err := x509.MarshalPKIXPublicKey(m.PublicKey)
+
+	if err != nil {
+		return fmt.Errorf("marshalling EC public key: %s", err)
+	}
+
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: key,
+	}
+	pemKey := pem.EncodeToMemory(block)
+
+	if err := binary.Write(b, binary.BigEndian, uint16(len(pemKey))); err != nil {
 		return fmt.Errorf("writing public key length: %s", err)
 	}
 
-	if err := binary.Write(b, binary.BigEndian, m.PublicKey); err != nil {
+	if err := binary.Write(b, binary.BigEndian, pemKey); err != nil {
 		return fmt.Errorf("writing public key: %s", err)
 	}
 
@@ -525,7 +540,19 @@ func (m *messageSession) serialize(b io.Writer) error {
 }
 
 func (m *messageSession) serializationSize() int {
-	return 4 + len(m.HostIdentifier) + 2 + 2 + 2 + len(m.PublicKey) + 2 + len(m.Signature)
+	key, err := x509.MarshalPKIXPublicKey(m.PublicKey)
+
+	if err != nil {
+		panic(fmt.Errorf("marshalling EC public key: %s", err))
+	}
+
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: key,
+	}
+	pemKey := pem.EncodeToMemory(block)
+
+	return 4 + len(m.HostIdentifier) + 2 + 2 + 2 + len(pemKey) + 2 + len(m.Signature)
 }
 
 func (m *messageSession) deserialize(b lenReader) (err error) {
@@ -566,10 +593,28 @@ func (m *messageSession) deserialize(b lenReader) (err error) {
 		return fmt.Errorf("reading public key size: %s", err)
 	}
 
-	m.PublicKey = make([]byte, size)
+	pemKey := make([]byte, size)
 
-	if err = binary.Read(b, binary.BigEndian, m.PublicKey); err != nil {
+	if err = binary.Read(b, binary.BigEndian, pemKey); err != nil {
 		return fmt.Errorf("reading public key: %s", err)
+	}
+
+	block, _ := pem.Decode(pemKey)
+
+	if block == nil {
+		return errors.New("decoding PEM public key: invalid PEM data")
+	}
+
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+
+	if err != nil {
+		return fmt.Errorf("parsing public key: %s", err)
+	}
+
+	var ok bool
+
+	if m.PublicKey, ok = key.(*ecdsa.PublicKey); !ok {
+		return fmt.Errorf("invalid public key type: %#v", key)
 	}
 
 	if err = binary.Read(b, binary.BigEndian, &size); err != nil {
@@ -586,7 +631,7 @@ func (m *messageSession) deserialize(b lenReader) (err error) {
 }
 
 func (m *messageSession) String() string {
-	return fmt.Sprintf("SESSION [sid:%08x,hid:%s,cipher:%s,curve:%s,public-key:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve, hex.EncodeToString(m.PublicKey))
+	return fmt.Sprintf("SESSION [sid:%08x,hid:%s,cipher:%s,curve:%s]", m.SessionNumber, m.HostIdentifier, m.CipherSuite, m.EllipticCurve)
 }
 
 // A SequenceNumber is a 4 bytes sequence number.
