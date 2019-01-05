@@ -35,6 +35,21 @@ const (
 	ECDHERSAAES256GCMSHA384 CipherSuite = 0x02
 )
 
+// BlockSize returns the block size.
+func (s CipherSuite) BlockSize() int {
+	switch s {
+	case NullCipherSuite:
+		return 0
+	case ECDHERSAAES128GCMSHA256:
+		return 16
+	case ECDHERSAAES256GCMSHA384:
+		return 32
+	}
+
+	panic(fmt.Errorf("Unknown cipher suite: %s", s))
+
+}
+
 // CipherSuiteSlice represents a slice of cipher suites.
 type CipherSuiteSlice []CipherSuite
 

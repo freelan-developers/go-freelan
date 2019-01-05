@@ -275,7 +275,7 @@ func (c *Conn) dispatchLoop() {
 						continue
 					}
 
-					var sessionNumber SessionNumber = 1
+					var sessionNumber SessionNumber
 
 					// If we have an existing next session, use the next session number.
 					if c.nextSession != nil {
@@ -320,7 +320,7 @@ func (c *Conn) dispatchLoop() {
 
 				cipherSuite := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
 				ellipticCurve := c.security.supportedEllipticCurves().FindCommon(imsg.EllipticCurves)
-				session, err := NewSession(imsg.SessionNumber, cipherSuite, ellipticCurve)
+				session, err := NewSession(c.localHostIdentifier, imsg.SessionNumber, cipherSuite, ellipticCurve)
 
 				if err != nil {
 					c.warning(fmt.Errorf("failed to initialize new session: %s", err))
@@ -346,6 +346,63 @@ func (c *Conn) dispatchLoop() {
 
 			case *messageSession:
 				c.debugPrintf("Received %s.\n", imsg)
+
+				if err := imsg.verifySignature(c.security); err != nil {
+					c.warning(fmt.Errorf("session request signature verification failed: %s", err))
+					continue
+				}
+
+				//TODO: Filter out some hosts based on a callback or other client logic.
+
+				//TODO: Verify the session logic here: it's way too complex to understand.
+				if c.session != nil && c.session.SessionNumber == imsg.SessionNumber {
+					c.debugPrintf("Ignoring repeated session message (%d).\n", imsg.SessionNumber)
+
+					continue
+				}
+
+				if c.nextSession == nil || c.nextSession.SessionNumber < imsg.SessionNumber {
+					session, err := NewSession(c.localHostIdentifier, imsg.SessionNumber, imsg.CipherSuite, imsg.EllipticCurve)
+
+					if err != nil {
+						c.warning(fmt.Errorf("failed to initialize new session: %s", err))
+
+						if err := c.sendSession(session); err != nil {
+							c.closeWithError(err)
+							return
+						}
+
+						continue
+					}
+
+					c.debugPrintf("Session number: %d.\n", session.SessionNumber)
+					c.debugPrintf("Selected cipher suite: %s.\n", session.CipherSuite)
+					c.debugPrintf("Selected elliptic curve: %s.\n", session.EllipticCurve)
+
+					c.nextSession = session
+
+					if err := c.sendSession(session); err != nil {
+						c.closeWithError(err)
+						return
+					}
+				}
+
+				if c.nextSession.SessionNumber > imsg.SessionNumber {
+					c.debugPrintf("Session is outdated (%d < %d): ignoring.\n", imsg.SessionNumber, c.nextSession.SessionNumber)
+
+					continue
+				} else if c.nextSession.SessionNumber == imsg.SessionNumber {
+					if err := c.nextSession.SetRemote(*c.remoteHostIdentifier, imsg.PublicKey); err != nil {
+						c.closeWithError(fmt.Errorf("computing shared key for session %d: %s", c.nextSession.SessionNumber, err))
+						return
+					}
+
+					c.session, c.nextSession = c.nextSession, nil
+					c.debugPrintf("Session %d established.\n", c.session.SessionNumber)
+				}
+
+			case *messageData:
+				c.debugPrintf("Received %s.\n", frame.message)
 
 			default:
 				c.debugPrintf("Received %s.\n", frame.message)
