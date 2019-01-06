@@ -31,6 +31,9 @@ type Conn struct {
 	closed     chan struct{}
 	closeError error
 	once       sync.Once
+
+	incomingData chan []byte
+	outgoingData chan []byte
 }
 
 func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, hostIdentifier HostIdentifier, security ClientSecurity) *Conn {
@@ -44,6 +47,9 @@ func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, hostIdentifier Host
 		incoming:  make(chan messageFrame, 10),
 		connected: make(chan struct{}),
 		closed:    make(chan struct{}),
+
+		incomingData: make(chan []byte, 100),
+		outgoingData: make(chan []byte, 100),
 	}
 
 	go conn.dispatchLoop()
@@ -52,13 +58,32 @@ func newConn(localAddr *Addr, remoteAddr *Addr, w io.Writer, hostIdentifier Host
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	// TODO: Implement.
-	return 0, nil
+	select {
+	case <-c.closed:
+		return 0, io.EOF
+	case buf := <-c.incomingData:
+		return copy(b, buf), nil
+	}
 }
 
-func (c *Conn) Write(b []byte) (n int, err error) {
-	// TODO: Implement.
-	return 0, nil
+func (c *Conn) Write(p []byte) (n int, err error) {
+	select {
+	case <-c.connected:
+		// Implementations must not retain p.
+		b := make([]byte, len(p))
+		copy(b, p)
+
+		select {
+		case <-c.closed:
+			return 0, io.ErrClosedPipe
+
+		case c.outgoingData <- b:
+			return len(b), nil
+		}
+
+	case <-c.closed:
+		return 0, io.ErrClosedPipe
+	}
 }
 
 // Close closes the connection.
@@ -199,6 +224,18 @@ func (c *Conn) sendSession(session *Session) error {
 	return c.writeMessage(MessageTypeSession, msg)
 }
 
+func (c *Conn) sendData(channel uint8, cleartext []byte) error {
+	msg := c.session.Encrypt(cleartext)
+
+	// Channel handling is a real pain and doesn't fit well with the
+	// Reader/Writer pattern... Let's hardcode channel 1 for now.
+	msg.Channel = channel
+
+	c.debugPrintf("Sending %s.\n", msg)
+
+	return c.writeMessage(MessageTypeData, msg)
+}
+
 func (c *Conn) dispatchLoop() {
 	uniqueNumber := UniqueNumber(rand.Uint32())
 
@@ -306,6 +343,8 @@ func (c *Conn) dispatchLoop() {
 					continue
 				}
 
+				// If we already have a current session that is more recent
+				// than the requested one, we resend it.
 				if c.session != nil && c.session.SessionNumber >= imsg.SessionNumber {
 					c.debugPrintf("Session request is for an oudated session (%d): resending current session (%d).\n", imsg.SessionNumber, c.session.SessionNumber)
 
@@ -318,6 +357,17 @@ func (c *Conn) dispatchLoop() {
 					continue
 				}
 
+				// If we already have a tentative next session that matches the requested one, we resend it.
+				if c.nextSession != nil && c.nextSession.SessionNumber >= imsg.SessionNumber {
+					if err := c.sendSession(c.nextSession); err != nil {
+						c.closeWithError(err)
+						return
+					}
+
+					continue
+				}
+
+				// We initiate a new session.
 				cipherSuite := c.security.supportedCipherSuites().FindCommon(imsg.CipherSuites)
 				ellipticCurve := c.security.supportedEllipticCurves().FindCommon(imsg.EllipticCurves)
 				session, err := NewSession(c.localHostIdentifier, imsg.SessionNumber, cipherSuite, ellipticCurve)
@@ -354,59 +404,133 @@ func (c *Conn) dispatchLoop() {
 
 				//TODO: Filter out some hosts based on a callback or other client logic.
 
-				//TODO: Verify the session logic here: it's way too complex to understand.
-				if c.session != nil && c.session.SessionNumber == imsg.SessionNumber {
-					c.debugPrintf("Ignoring repeated session message (%d).\n", imsg.SessionNumber)
+				if c.session != nil {
+					if c.session.SessionNumber == imsg.SessionNumber {
+						// The requested session matches the current one: we
+						// send nothing to avoid a ping-pong of identical
+						// session messages.
+						c.debugPrintf("Ignoring repeated session message (%d).\n", imsg.SessionNumber)
 
-					continue
-				}
-
-				if c.nextSession == nil || c.nextSession.SessionNumber < imsg.SessionNumber {
-					session, err := NewSession(c.localHostIdentifier, imsg.SessionNumber, imsg.CipherSuite, imsg.EllipticCurve)
-
-					if err != nil {
-						c.warning(fmt.Errorf("failed to initialize new session: %s", err))
-
-						if err := c.sendSession(session); err != nil {
+						continue
+					} else if c.session.SessionNumber > imsg.SessionNumber {
+						// The requested session is outdated: we resend our current one.
+						if err := c.sendSession(c.session); err != nil {
 							c.closeWithError(err)
 							return
 						}
 
 						continue
 					}
+				}
 
-					c.debugPrintf("Session number: %d.\n", session.SessionNumber)
-					c.debugPrintf("Selected cipher suite: %s.\n", session.CipherSuite)
-					c.debugPrintf("Selected elliptic curve: %s.\n", session.EllipticCurve)
+				// If we reach this point, we either have no active session or an outdated one.
 
-					c.nextSession = session
+				if c.nextSession != nil {
+					if c.nextSession.SessionNumber == imsg.SessionNumber {
+						if err := c.nextSession.SetRemote(*c.remoteHostIdentifier, imsg.PublicKey); err != nil {
+							c.closeWithError(fmt.Errorf("computing shared key for session %d: %s", c.nextSession.SessionNumber, err))
+							return
+						}
+
+						if c.session == nil {
+							close(c.connected)
+						}
+
+						c.session, c.nextSession = c.nextSession, nil
+						c.debugPrintf("Session %d established.\n", c.session.SessionNumber)
+
+						continue
+					} else if c.nextSession.SessionNumber > imsg.SessionNumber {
+						c.debugPrintf("Session is outdated (%d < %d): ignoring.\n", imsg.SessionNumber, c.nextSession.SessionNumber)
+
+						continue
+					}
+				}
+
+				// If we reach this point, we either have no next session or an outdated one.
+
+				cipherSuite := c.security.CipherSuites.FindCommon(CipherSuiteSlice{imsg.CipherSuite})
+				ellipticCurve := c.security.EllipticCurves.FindCommon(EllipticCurveSlice{imsg.EllipticCurve})
+
+				session, err := NewSession(c.localHostIdentifier, imsg.SessionNumber, cipherSuite, ellipticCurve)
+
+				if err != nil {
+					c.warning(fmt.Errorf("failed to initialize new session: %s", err))
 
 					if err := c.sendSession(session); err != nil {
 						c.closeWithError(err)
 						return
 					}
-				}
-
-				if c.nextSession.SessionNumber > imsg.SessionNumber {
-					c.debugPrintf("Session is outdated (%d < %d): ignoring.\n", imsg.SessionNumber, c.nextSession.SessionNumber)
 
 					continue
-				} else if c.nextSession.SessionNumber == imsg.SessionNumber {
-					if err := c.nextSession.SetRemote(*c.remoteHostIdentifier, imsg.PublicKey); err != nil {
-						c.closeWithError(fmt.Errorf("computing shared key for session %d: %s", c.nextSession.SessionNumber, err))
-						return
-					}
+				}
 
-					c.session, c.nextSession = c.nextSession, nil
-					c.debugPrintf("Session %d established.\n", c.session.SessionNumber)
+				if err := c.sendSession(session); err != nil {
+					c.closeWithError(err)
+					return
+				}
+
+				c.debugPrintf("Session number: %d.\n", session.SessionNumber)
+				c.debugPrintf("Selected cipher suite: %s.\n", session.CipherSuite)
+				c.debugPrintf("Selected elliptic curve: %s.\n", session.EllipticCurve)
+
+				c.session, c.nextSession = session, nil
+				c.debugPrintf("Session %d established.\n", c.session.SessionNumber)
+
+				if c.session == nil {
+					close(c.connected)
 				}
 
 			case *messageData:
 				c.debugPrintf("Received %s.\n", frame.message)
 
+				if c.session == nil {
+					c.debugPrintf("Received data without an active session: ignoring.\n")
+					continue
+				}
+
+				data, err := c.session.Decrypt(imsg)
+
+				if err != nil {
+					c.warning(fmt.Errorf("failed to decode DATA message (%d): %s", imsg.SequenceNumber, err))
+
+					continue
+				}
+
+				switch frame.messageType {
+				case MessageTypeKeepAlive:
+					// TODO: Handle keep alives.
+				case MessageTypeContact:
+					// TODO: Handle contacts.
+				case MessageTypeData:
+					select {
+					case c.incomingData <- data:
+					default:
+						c.warning(fmt.Errorf("dropping %d byte(s) of incoming data because reads are not happening fast enough", len(data)))
+
+						continue
+					}
+				}
+
 			default:
 				c.debugPrintf("Received %s.\n", frame.message)
 			}
+
+		case data := <-c.outgoingData:
+			// This is not supposed to happen, as the addition to the
+			// outgoingData channel is gated by the closure of the connected
+			// channel.
+			if c.session == nil {
+				c.warning(fmt.Errorf("dropping %d byte(s) of outgoing data because no session is currently active", len(data)))
+
+				continue
+			}
+
+			if err := c.sendData(1, data); err != nil {
+				c.closeWithError(err)
+				return
+			}
+
 		case <-c.closed:
 			return
 		}

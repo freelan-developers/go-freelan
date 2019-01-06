@@ -640,7 +640,7 @@ type SequenceNumber uint32
 type messageData struct {
 	Channel        uint8
 	SequenceNumber SequenceNumber
-	GCMTag         [16]byte
+	GCMTag         []byte
 	Ciphertext     []byte
 }
 
@@ -665,7 +665,7 @@ func (m *messageData) serialize(b io.Writer) (err error) {
 }
 
 func (m *messageData) serializationSize() int {
-	return 4 + 16 + 2 + len(m.Ciphertext)
+	return 4 + len(m.GCMTag) + 2 + len(m.Ciphertext)
 }
 
 func (m *messageData) deserialize(b lenReader) (err error) {
@@ -677,6 +677,8 @@ func (m *messageData) deserialize(b lenReader) (err error) {
 		return fmt.Errorf("reading sequence number: %s", err)
 	}
 
+	m.GCMTag = make([]byte, 16)
+
 	if err = binary.Read(b, binary.BigEndian, &m.GCMTag); err != nil {
 		return fmt.Errorf("reading GCM tag: %s", err)
 	}
@@ -687,7 +689,9 @@ func (m *messageData) deserialize(b lenReader) (err error) {
 		return fmt.Errorf("reading ciphertext size: %s", err)
 	}
 
-	m.Ciphertext = make([]byte, size)
+	// As an optimization, we add a bit more room for the GCM tag that will be
+	// added during decipherment, to avoid reallocation.
+	m.Ciphertext = make([]byte, size, int(size)+len(m.GCMTag))
 
 	if err = binary.Read(b, binary.BigEndian, m.Ciphertext); err != nil {
 		return fmt.Errorf("reading ciphertext: %s", err)

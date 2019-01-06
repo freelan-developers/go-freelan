@@ -56,7 +56,6 @@ type CipherSuiteSlice []CipherSuite
 // DefaultCipherSuites returns the default cipher suites.
 func DefaultCipherSuites() CipherSuiteSlice {
 	return CipherSuiteSlice{
-		ECDHERSAAES256GCMSHA384,
 		ECDHERSAAES128GCMSHA256,
 	}
 }
